@@ -313,6 +313,7 @@ export default function WorkspacePage() {
         setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
         setPendingEvents([])
         setAgentCommands([])
+        setManifest(null)
         setSimCode(data.simCode)
         setRenderer(data.designDoc.renderer)
       })
@@ -330,6 +331,7 @@ export default function WorkspacePage() {
           if (cancelled) return
           const w = payload.workspace
           setDesignDoc(w.designDoc)
+          setManifest(null)
           setSimCode(w.simCode)
           setRenderer(w.renderer)
           setActiveStepId(
@@ -355,6 +357,7 @@ export default function WorkspacePage() {
         setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
         setPendingEvents([])
         setAgentCommands([])
+        setManifest(null)
         setSimCode(data.simCode)
         setRenderer(data.designDoc.renderer)
       })
@@ -365,7 +368,11 @@ export default function WorkspacePage() {
     }
   }, [workspaceId, sessionId])
 
-  const handleManifest = useCallback((m: Manifest) => setManifest(m), [])
+  const handleManifest = useCallback((m: Manifest) => {
+    setManifest(m)
+  }, [])
+
+  const sandboxLoading = simCode != null && manifest == null
 
   const handleIframeMessage = useCallback((msg: IframeMessage) => {
     console.log('[iframe]', msg)
@@ -445,7 +452,14 @@ export default function WorkspacePage() {
   const activeStep = designDoc?.socratic_plan.find(step => step.id === activeStepId) || null
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-zinc-100">
+    <div className="relative flex flex-col h-screen bg-zinc-950 text-zinc-100">
+      {sandboxLoading && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/95 text-zinc-100 gap-3">
+          <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+          <p className="text-sm text-zinc-300">Sandbox load — starting simulation runtime</p>
+          <p className="text-xs text-zinc-600 max-w-sm text-center">Waiting for manifest from iframe (sim module executed).</p>
+        </div>
+      )}
       <TopBar concept={designDoc?.concept ?? ''} />
       <div className="flex-1 relative min-h-0">
         <SocraticPlanPanel

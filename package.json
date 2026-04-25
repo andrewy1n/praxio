@@ -13,6 +13,7 @@
     "@ai-sdk/google": "^3.0.64",
     "@elevenlabs/elevenlabs-js": "^2.44.0",
     "ai": "^6.0.168",
+    "mathjs": "^15.2.0",
     "mongodb": "^7.2.0",
     "next": "16.2.4",
     "react": "19.2.4",

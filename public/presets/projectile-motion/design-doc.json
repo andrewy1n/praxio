@@ -1,6 +1,7 @@
 {
   "concept": "projectile motion",
   "domain": "physics",
+  "primitive": "physics.projectile",
   "renderer": "p5",
   "episodic": true,
   "params": [

@@ -92,6 +92,7 @@ export function coerceDesignDocJson(input: unknown): unknown {
   if (typeof d.domain === 'string') d.domain = d.domain.trim().toLowerCase()
   d.renderer = normalizeRenderer(d.renderer)
   d.episodic = normalizeEpisodic(d.episodic)
+  if (typeof d.primitive === 'string') d.primitive = d.primitive.trim()
 
   if (Array.isArray(d.params)) d.params = d.params.map(normalizeParam)
 

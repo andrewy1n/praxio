@@ -11,7 +11,7 @@
 | Language | `typescript` | 5.x | Type safety across client + server |
 | AI SDK | `ai` | 4.x | Vercel AI SDK core |
 | AI provider | `@ai-sdk/google` | latest | Gemma 4 via Google AI Studio |
-| Schema validation | `zod` | 3.x | Pass 1 design doc schema, tool param schemas |
+| Schema validation | `zod` | 3.x | Curriculum/verification-spec schemas, tool param schemas |
 | Simulation | `p5` | 1.x | Physics / motion / biology renderer |
 | Simulation | `jsxgraph` | 1.x | Math / calculus / geometry renderer |
 | Simulation | `matter-js` | 0.19.x | Rigid body physics renderer |
@@ -33,7 +33,7 @@ Roles are split across two models based on measured behavior. Both ship via `@ai
 ```typescript
 import { google } from '@ai-sdk/google'
 
-const genModel   = google('gemma-4-31b-it')    // Pass 1, Pass 2
+const genModel   = google('gemma-4-31b-it')    // curriculum, verification-spec, sim-builder
 const tutorModel = google('gemini-2.5-flash')  // Socratic tutor (two-call)
 ```
 
@@ -43,7 +43,7 @@ const tutorModel = google('gemini-2.5-flash')  // Socratic tutor (two-call)
 - Gemini 2.5 Flash: ~1.4s median total latency. Native tool calls work, but it also emits text-then-tools (not interleaved) and text≥1 is only 10% when tools are requested in the same call. The two-call pattern below mitigates both issues.
 - Neither model interleaves text and tools in a single streamed response. The two-call pattern is not a Gemma workaround — it is the correct architecture for this provider regardless of model choice.
 
-**Pass 1 — Concept → Design Doc** (Gemma 4 31B-it)
+**Curriculum Agent — Concept → Design Doc Core** (Gemma 4 31B-it)
 Uses `generateObject` with a Zod schema:
 
 ```typescript
@@ -53,18 +53,29 @@ const { object: designDoc } = await generateObject({
   model: genModel,
   schema: designDocSchema,   // Zod schema — see api_contracts.md
   prompt: concept,
-  system: PASS1_SYSTEM_PROMPT,
+  system: CURRICULUM_SYSTEM_PROMPT,
 })
 ```
 
-**Pass 2 — Design Doc → Sim Code** (Gemma 4 31B-it)
+**Verification-Spec Agent — Design Doc Core → Verification Block** (Gemma 4 31B-it)
+
+```typescript
+const { object: verification } = await generateObject({
+  model: genModel,
+  schema: verificationSchema,
+  prompt: JSON.stringify(designDocCore),
+  system: VERIFICATION_SPEC_SYSTEM_PROMPT,
+})
+```
+
+**Sim-Builder Agent — Full Design Doc → Sim Code** (Gemma 4 31B-it)
 
 ```typescript
 import { generateText } from 'ai'
 
 const { text: simCode } = await generateText({
   model: genModel,
-  system: PASS2_SYSTEM_PROMPT + '\n\nDESIGN DOCUMENT:\n' + JSON.stringify(designDoc),
+  system: SIM_BUILDER_SYSTEM_PROMPT + '\n\nDESIGN DOCUMENT:\n' + JSON.stringify(designDoc),
   prompt: 'Generate the simulation module.',
 })
 ```
@@ -77,7 +88,7 @@ After static validation passes, the generated sim is executed in a headless runt
 const verification = await verifySimBehavior(simCode, designDoc)
 
 if (!verification.passed) {
-  // Retry Pass 2 with concrete failed invariants as feedback.
+  // Retry sim-builder agent with concrete failed invariants as feedback.
   // Fall back to a pre-verified template after the retry budget.
 }
 ```
@@ -122,7 +133,7 @@ const speech = streamText({
 
 ### Renderer Selection
 
-Pass 1 selects the renderer based on concept domain. The client loads the matching iframe template:
+The curriculum agent selects the renderer based on concept domain. The client loads the matching iframe template:
 
 ```
 designDoc.renderer → iframe src

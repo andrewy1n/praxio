@@ -5,13 +5,13 @@
 
 ## Problem
 
-The current two-pass generation pipeline fails behavioral verification at a high rate. The root cause is not structural — `prompts.ts` already prescribes SDK conformance, episodic lifecycle, region getPosition, and dt-in-seconds — but **correctness of generated math and physics**.
+The current generation pipeline fails behavioral verification at a high rate. The root cause is not structural — `prompts.ts` already prescribes SDK conformance, episodic lifecycle, region getPosition, and dt-in-seconds — but **correctness of generated math and physics**.
 
 Generated sims frequently fail invariants like range symmetry and 45°-max-range because:
 
 1. **Coordinate system flips are silent.** Screen y-down vs physics y-up. One missed sign inversion makes visuals look fine but emits wrong metric values.
 2. **Metric emission timing is fragile.** The invariant reads `range_m` from the `landed` event. Models emit at the wrong phase boundary, or compute range from velocity at peak-time instead of landing.
-3. **Pass 1 occasionally generates physically false invariants.** "Range monotonically increases from 30° → 45° → 60°" is incorrect (60° ≈ 30° by symmetry). If Pass 1 invents a wrong invariant, Pass 2 can never satisfy it.
+3. **The verification-spec stage occasionally generates physically false invariants.** "Range monotonically increases from 30° → 45° → 60°" is incorrect (60° ≈ 30° by symmetry). If it invents a wrong invariant, the sim-builder stage can never satisfy it.
 4. **Integration accumulates error.** dt-stepped Euler integrators accumulate floating-point drift over a full flight, causing final `range_m` to diverge from closed-form by more than the probe tolerance.
 
 Scaffolding templates does not fix this — the prompts already provide the structural contract. The issue is that physics and math equations written inline by the model are wrong often enough to make generation unreliable.
@@ -20,7 +20,7 @@ Scaffolding templates does not fix this — the prompts already provide the stru
 
 ## Proposal: `runtime.physics` and `runtime.math`
 
-Add two namespaces to `simRuntime.js`. Pass 2 picks the appropriate primitive and wires it to params + rendering. The model no longer writes the integrator or numerical method.
+Add two namespaces to `simRuntime.js`. The sim-builder agent picks the appropriate primitive and wires it to params + rendering. The model no longer writes the integrator or numerical method.
 
 **Physics primitives are hand-written** (~5–15 lines each). They are pure closed-form algebra — no library is worth the dependency for formulas this simple.
 
@@ -117,9 +117,9 @@ mathjs is loaded via script tag in each iframe HTML before `simRuntime.js`:
 
 ---
 
-## How Pass 2 Uses This
+## How the Sim-Builder Agent Uses This
 
-For projectile motion, Pass 2 becomes:
+For projectile motion, sim-builder output becomes:
 
 ```javascript
 const getSpeed = runtime.registerParam('speed', { ... })
@@ -156,7 +156,7 @@ runtime.onRender((ctx) => {
 })
 ```
 
-For a derivative explorer (JSXGraph), Pass 2 becomes:
+For a derivative explorer (JSXGraph), sim-builder output becomes:
 
 ```javascript
 const getX = runtime.registerParam('x', { min: -5, max: 5, default: 1, label: 'x' })
@@ -179,16 +179,16 @@ The model still writes all rendering, region, and event code. Only the correctne
 - Metric emission is deterministic: `traj.flightTime` is a property, not a frame-step accumulation.
 
 The remaining failure surface:
-- Model wires wrong param to wrong primitive argument — catchable by a name-match check in Pass 1.
-- Pass 1 generates a physically false invariant — fixable by the self-check step below.
+- Model wires wrong param to wrong primitive argument — catchable by a name-match check in the curriculum stage.
+- Verification-spec stage generates a physically false invariant — fixable by the self-check step below.
 
 ---
 
-## Companion Fix: Pass 1 Invariant Self-Check
+## Companion Fix: Verification-Spec Invariant Self-Check
 
-After Pass 1 generates invariants, validate them analytically server-side before any Pass 2 call. For `approximately_equal` on a projectile concept, compute `range(probe_a)` and `range(probe_b)` using the closed-form formula and reject if they violate the invariant. Catches hallucinated invariants in <1ms with no model call.
+After verification-spec generation, validate invariants analytically server-side before any sim-builder call. For `approximately_equal` on a projectile concept, compute `range(probe_a)` and `range(probe_b)` using the closed-form formula and reject if they violate the invariant. Catches hallucinated invariants in <1ms with no model call.
 
-Recommendation: block and retry Pass 1 once on failure; on second failure, warn and continue so the freeform fallback still fires.
+Recommendation: block and retry verification-spec once on failure; on second failure, warn and continue so the freeform fallback still fires.
 
 ---
 
@@ -216,7 +216,7 @@ Concepts outside covered domains fall back to freeform generation. The fallback 
 **Gains:**
 - Behavioral verification passes reliably for covered concepts.
 - Retry loop shrinks or disappears for covered concepts → generation time drops significantly.
-- Pass 1 invariant self-check catches model mistakes before any Pass 2 call.
+- Verification-spec invariant self-check catches model mistakes before any sim-builder call.
 - Less prompt sensitivity: gravity sign, dt handling, metric emission timing become non-issues.
 - Math sims (derivatives, integrals) become as reliable as physics sims.
 
@@ -226,9 +226,9 @@ Concepts outside covered domains fall back to freeform generation. The fallback 
 
 1. **`public/iframe/*.html`** — add mathjs CDN script tag before `simRuntime.js` in all four iframe HTML files.
 2. **`public/simRuntime.js`** — add `runtime.physics` namespace (5 hand-written primitives, ~120 lines) and `runtime.math` facade over mathjs global (~30 lines).
-3. **`src/lib/prompts.ts` (Pass 2 prompt)** — add `PRIMITIVES` section listing available namespaces and signatures. Instruct the model to use one when the concept matches.
-4. **`src/lib/prompts.ts` (Pass 1 prompt)** — add `primitive` as an optional field in the design doc schema so Pass 1 declares intent and Pass 2 can match it.
-5. **`src/lib/verification.ts`** — add server-side invariant self-check using the same closed-form formulas. Run immediately after Pass 1, before Pass 2.
+3. **`src/lib/prompts.ts` (sim-builder prompt)** — add `PRIMITIVES` section listing available namespaces and signatures. Instruct the model to use one when the concept matches.
+4. **`src/lib/prompts.ts` (curriculum prompt)** — add `primitive` as an optional field in the design doc schema so curriculum declares intent and sim-builder can match it.
+5. **`src/lib/verification.ts`** — add server-side invariant self-check using the same closed-form formulas. Run immediately after verification-spec generation, before sim-builder.
 6. **`lib/types.ts`** — add `primitive?: string` to `DesignDoc`.
 
 Estimated implementation time: ~4–5h. Does not require changes to the tutor, iframe protocol, or MongoDB schema.

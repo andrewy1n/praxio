@@ -40,7 +40,7 @@ Person B stubs these responses locally and never blocks on Person A.
 ## Person A — Simulation Engine
 
 **Owns:**
-- `app/api/generate/route.ts` — two-pass Gemma pipeline
+- `app/api/generate/route.ts` — three-agent Gemma pipeline
 - `app/api/tutor/route.ts` — two-call Gemini tutor loop
 - `public/simRuntime.js` — iframe runtime, SDK enforcement
 - `public/test.html` — local test harness (no React needed)
@@ -49,7 +49,7 @@ Person B stubs these responses locally and never blocks on Person A.
 
 1. **`simRuntime.js`** — implement the SDK interface (`registerParam`, `onUpdate`, `onRender`, event emission, regions). Test with a hand-written sim pasted directly into `test.html`. No API calls yet.
 
-2. **`/api/generate`** — port the two-pass pipeline from `spikes/gemma-tools-v2/test.ts`. Pass 1: concept → design doc (Gemma 4 31b-it, `generateObject`). Pass 1 must emit `verification.probes` and `verification.invariants` in addition to the Socratic plan. Pass 2: design doc → sim code. Validate output with `validateSimModule()`, then run behavioral verification against the probes/invariants. Test with `curl`.
+2. **`/api/generate`** — port the generation pipeline from `spikes/gemma-tools-v2/test.ts` as agent stages: curriculum-agent (concept → design doc core), verification-spec-agent (probes/invariants), sim-builder-agent (design doc → sim code). Validate output with `validateSimModule()`, then run behavioral verification against the probes/invariants. Test with `curl`.
 
 3. **Generate → iframe loop** — `test.html` calls `/api/generate`, displays the verification report, injects returned code into the iframe only after verification passes, and logs all postMessage events to console. This proves the full generation + runtime contract.
 
@@ -65,8 +65,9 @@ Person B stubs these responses locally and never blocks on Person A.
 - Correctness cannot be established by static validation alone — generated sims need behavioral probes and invariant checks before the tutor uses them
 
 **System prompts to write (see GAPS.md):**
-- `PASS1_SYSTEM_PROMPT` — concept → design doc
-- `PASS2_SYSTEM_PROMPT` — design doc → sim code
+- `CURRICULUM_SYSTEM_PROMPT` — concept → design doc core
+- `VERIFICATION_SPEC_SYSTEM_PROMPT` — design doc core → probes/invariants
+- `buildSimBuilderPrompt()` — full design doc → sim code
 - `buildCall1SystemPrompt(manifest, designDoc)` — staging call
 - `buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls)` — Socratic question call
 
@@ -185,7 +186,7 @@ Definition of done:
 | Risk | Owner | Mitigation |
 |------|-------|-----------|
 | Generated sim code fails `validateSimModule` | A | Fallback registry (3 hand-authored sims) |
-| Generated sim code is runnable but conceptually wrong | A | Behavioral verification probes/invariants; retry Pass 2 with failed checks; fallback to pre-verified templates |
+| Generated sim code is runnable but conceptually wrong | A | Behavioral verification probes/invariants; retry sim-builder-agent with failed checks; fallback to pre-verified templates |
 | Tutor tool call IDs don't match sim manifest | A | Strict prompting + Zod enum enforcement |
 | Gemma latency too high for demo (~12s) | A | Cache generated sims; show loading state |
 | iframe postMessage schema drifts | Both | `lib/types.ts` is source of truth; never inline event shapes |

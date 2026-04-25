@@ -1,11 +1,13 @@
 import type { Manifest, DesignDoc, AppliedToolCall } from './types'
 
-export const PASS1_SYSTEM_PROMPT = `
-You are Pass 1 of Praxio's simulation pipeline.
-Convert the student's concept into a pedagogically useful design document.
+/** Curriculum agent: concept → design doc core (no verification block). */
+export const CURRICULUM_SYSTEM_PROMPT = `
+You are the curriculum agent of Praxio's simulation pipeline.
+Convert the student's concept into a pedagogically useful design document (scene + Socratic plan only).
 
 Your output is parsed as a strict object schema by the server.
 Return only the structured data for that schema (no markdown, no prose outside fields).
+Do NOT include a verification field — a separate step adds probes and invariants.
 
 Requirements:
 1) Keep the design doc minimal, coherent, and teachable in one interactive scene.
@@ -45,38 +47,47 @@ Requirements:
    staging lock/highlight/set_params must reference existing param IDs;
    staging.highlight MUST only contain IDs from params[].name (never region IDs, labels, or UI element names).
    staging annotate[].region must reference register_regions.
-   For numeric_hypothesis, interaction.metric MUST be copied exactly from one of verification.probes[].expected_metrics.
-   Never invent metric aliases; reuse exact spelling/casing from probes.
+   For numeric_hypothesis, use a stable short metric name (snake_case) the sim will emit. The verification step lists that exact string on every probe that needs it — avoid one-off names.
+   Projectile (physics.projectile or same pedagogy without primitive): for "how far" / range questions use metric "range_m"; for "how long in the air" use "time_of_flight_s". For a guess of launch angle in degrees, use "angle" only if the sim emits that key. Do NOT use invented names like "max_range_angle", "optimal_angle", or "best_range_m" — they will fail consistency. Prefer rephrasing the step so the student hypothesizes range (range_m) when the lesson is about distance.
    Use expected_observation, followup_if_correct, followup_if_surprised when reconciliation matters.
-9) Keep IDs internally consistent across params, events, regions, staging, and
+9) Optional "primitive" (string): for covered domains, set so the sim-builder can use built-in math:
+   - "physics.projectile" — flat ground, constant g; do NOT require impossible invariants. Range is (v0^2 sin(2θ))/g. Complementary launch angles (e.g. 30° and 60°) have equal range for the same v0 and g. Use param names: launch_angle, initial_velocity, gravity.
+   - "math.expression" — use runtime.math (derivatives, integrals) for correctness on JSXGraph.
+   - Omit the field for freeform sims outside these packs.
+   - When choosing a primitive, make param naming compatible with that primitive's canonical API.
+10) Keep IDs internally consistent across params, events, regions, staging, and
    socratic_plan.
-10) Domain must be one of: physics, math, biology, chemistry, general.
-11) episodic: set to true if the sim has a discrete launch/run/reset cycle (projectile,
+11) Domain must be one of: physics, math, biology, chemistry, general.
+12) episodic: set to true if the sim has a discrete launch/run/reset cycle (projectile,
     chemical reaction, etc.). Set to false for continuously evolving sims (derivative
     explorer, population growth, etc.).
-12) verification: behavioral test cases that prove the sim models the concept correctly.
-    The verifier executes the sim headlessly, runs each probe, and checks invariants.
-    - verification.summary: one sentence stating what must be true for the sim to be trusted.
-    - verification.probes: 2–8 deterministic test cases. Each probe specifies param values
-      and expected_metrics (the metric names the sim will emit in event payloads, e.g.
-      "range_m" for projectile motion). Use concrete, meaningful param values.
-    - verification.invariants: 2–8 domain-truth checks.
-    CRITICAL — each entry in verification.invariants MUST be a JSON object.
-    Never use string/function shorthand (invalid: "approximately_equal(...)" or "range symmetry check").
-    Every invariant object MUST include "kind", "id", and "description".
-    Valid invariant object shapes (copy exactly; only probe/metric names should change):
-    - {"kind":"approximately_equal","id":"inv_id","description":"...","left_probe":"probe_a","right_probe":"probe_b","metric":"metric_name","tolerance_percent":8}
-    - {"kind":"monotonic","id":"inv_id","description":"...","probe_order":["probe_a","probe_b","probe_c"],"metric":"metric_name","direction":"increasing"}
-    - {"kind":"near_expected","id":"inv_id","description":"...","probe":"probe_id","metric":"metric_name","expected":42,"tolerance_percent":10}
-    - {"kind":"near_maximum","id":"inv_id","description":"...","target_probe":"probe_id","comparison_probes":["probe_a","probe_b"],"metric":"metric_name","tolerance_percent":5}
-    - Probe IDs in invariants MUST exactly match probe IDs defined in probes[].
-    - Metric names in invariants MUST match metric names listed in probes[].expected_metrics.
-    - Use tolerance_percent of 5–15% to account for floating-point and timing variance.
-    Example (projectile motion):
-      probes: angle_30 (angle=30,v=20,g=9.8), angle_45 (angle=45,v=20,g=9.8), angle_60 (angle=60,v=20,g=9.8)
-      invariants:
-      [{"kind":"approximately_equal","id":"range_symmetry_30_60","description":"30 and 60 degrees should have similar range","left_probe":"angle_30","right_probe":"angle_60","metric":"range_m","tolerance_percent":8},
-       {"kind":"near_maximum","id":"range_max_45","description":"45 degrees should be near maximum range","target_probe":"angle_45","comparison_probes":["angle_30","angle_60"],"metric":"range_m","tolerance_percent":5}]
+`.trim()
+
+/** Verification-spec agent: design doc core → verification block only. */
+export const VERIFICATION_SPEC_SYSTEM_PROMPT = `
+You are the verification-spec agent. You receive a design document core (JSON) that already
+defines params, events, regions, socratic plan, and optional primitive. Your only job is to
+add behavioral test cases: verification.summary, verification.probes, verification.invariants.
+
+The verifier will execute the sim headlessly, run each probe, and check invariants.
+Output ONLY the verification object (summary, probes, invariants) as strict JSON — no wrapper, no markdown.
+
+Rules:
+- verification.summary: one sentence stating what must be true for the sim to be trusted.
+- verification.probes: 2–8 deterministic test cases. Each probe: id, description, params (param name → number within existing param ranges), expected_metrics (metric names the sim will emit in event payloads, e.g. "range_m").
+- First, read NUMERIC_HYPOTHESIS_METRICS from the user prompt. Then ensure every listed metric appears in expected_metrics (exact string) on at least one probe.
+- Probe params must use the exact param names from the design doc core; do not leave params empty. Include all design-doc params on each probe unless impossible.
+- Every numeric_hypothesis step in the socratic plan uses interaction.metric: that string MUST appear in at least one probe's expected_metrics (exact spelling).
+- Projectile lessons: probes should list the metrics the sim emits (typically "range_m", often "time_of_flight_s"). Every socratic numeric_hypothesis.metric must appear on ≥1 probe — if core asks for a range guess, use "range_m" in expected_metrics everywhere that probe runs range checks.
+- verification.invariants: 2–8 machine-checkable domain claims.
+- CRITICAL: each entry in invariants is a JSON object (never string shorthand).
+- Valid invariant kinds (copy structure; only ids/probes/metrics change):
+  - {"kind":"approximately_equal","id":"inv_id","description":"...","left_probe":"probe_a","right_probe":"probe_b","metric":"metric_name","tolerance_percent":8}
+  - {"kind":"monotonic","id":"inv_id","description":"...","probe_order":["a","b","c"],"metric":"metric_name","direction":"increasing"|"decreasing"}
+  - {"kind":"near_expected","id":"inv_id","description":"...","probe":"probe_id","metric":"metric_name","expected":42,"tolerance_percent":10}
+  - {"kind":"near_maximum","id":"inv_id","description":"...","target_probe":"pid","comparison_probes":["a","b"],"metric":"metric_name","tolerance_percent":5}
+- Probe/invariant/metric names must be consistent. tolerance_percent: 5–15% for float variance.
+- For projectile (primitive physics.projectile): never claim monotonic range vs angle from 30°→45°→60°; 30° and 60° often have near-equal range at fixed v0 and g.
 `.trim()
 
 const PASS2_RUNTIME_CONTRACT = `
@@ -93,6 +104,30 @@ AVAILABLE RUNTIME API:
 - runtime.onRender((ctx) => { ... })  // ctx depends on renderer
 - runtime.emit(eventName, payload) // preferred
 - runtime.emitEvent(eventName, payload) // compatibility alias
+- For episodic sims: runtime.onLaunch, runtime.onReset, runtime.reportPhase('done') (see SDK).
+
+PRIMITIVES (closed-form; use when designDoc.primitive matches — do not reimplement integrators for these):
+- runtime.physics.projectile(speed_mps, angle_deg, g_mps2) → { positionAt(t), velocityAt(t), flightTime, range, peak, didLand(t) } — y=0 at launch, y>0 up.
+  Exact nested shapes:
+  - positionAt(t) returns { x_m: number, y_m: number } (NOT x/y)
+  - velocityAt(t) returns { vx: number, vy: number }
+  - peak is { t: number, height_m: number } (NOT time/x/y)
+  - didLand(t) returns boolean
+  Required usage for "physics.projectile":
+  - Emit range_m from traj.range on landing (NOT from sampled position drift).
+  - Emit time_of_flight_s from traj.flightTime when landing occurs.
+  - Never read positionAt(...).x or .y; never read peak.time/peak.x/peak.y.
+- runtime.physics.shm(amplitude, omega_rad_s, phase_rad) → { positionAt, velocityAt, period }
+- runtime.physics.exponentialDecay(initial, k) → { valueAt, halfLife }
+- runtime.physics.elasticCollision1D(m1, v1, m2, v2) → { v1_final, v2_final }
+- runtime.physics.logisticGrowth(initial, k, carrying_capacity) → { valueAt, inflectionPoint }
+- runtime.math.derivative(exprString, x) — x numeric
+- runtime.math.integral(f, a, b) — f is a JS function, or a string expression in x
+- runtime.math.evaluate(exprString, scope)
+- runtime.math.taylorCoefficients(exprString, center, terms) — returns [{ degree, coefficient }, ...]
+- runtime.math.complex(re, im)
+If designDoc.primitive is "physics.projectile", you MUST use runtime.physics.projectile for flight path, range, and metrics. If "math.expression", you MUST use runtime.math for stated derivatives/integrals.
+registerParam returns a getter function only. Use getter() to read current value; do not read getter.min/getter.max/getter.default.
 
 HARD RULES:
 1) No imports/require.
@@ -208,13 +243,80 @@ RENDERER CHEATSHEET — matter (ctx = { Matter, engine, world }):
   }
 }
 
-export function buildPass2Prompt(designDoc: DesignDoc, previousErrors: string[]): string {
-  const errorContext = previousErrors.length > 0
-    ? `\n\nPrevious attempt failed validation with: ${previousErrors.join(', ')}. Fix every listed issue explicitly.`
-    : ''
+/** Max chars of previous sim code embedded in the repair prompt (avoid huge system prompts). */
+export const SIM_BUILDER_PREVIOUS_CODE_PROMPT_MAX = 100_000
 
-  return `You are Pass 2 of Praxio's simulation pipeline.
-Generate sandbox-safe simulation code from the design document.
+export type SimBuilderRepairIntent = 'static_repair' | 'behavioral_repair'
+
+export type BuildSimBuilderPromptOptions = {
+  previousSimCode?: string
+  repairIntent?: SimBuilderRepairIntent
+}
+
+function formatPreviousSimForPrompt(code: string): { block: string; truncated: boolean } {
+  const len = code.length
+  if (len <= SIM_BUILDER_PREVIOUS_CODE_PROMPT_MAX) {
+    return { block: code, truncated: false }
+  }
+  return {
+    block: `${code.slice(0, SIM_BUILDER_PREVIOUS_CODE_PROMPT_MAX)}\n\n[... truncated: ${len} total chars; fix issues in the visible portion and keep structure consistent ...]`,
+    truncated: true,
+  }
+}
+
+function repairModeBlock(intent: SimBuilderRepairIntent): string {
+  if (intent === 'static_repair') {
+    return `
+REPAIR MODE (static validation):
+- You are revising a previous candidate. Make the smallest set of edits needed to satisfy the runtime contract and the listed validation failures.
+- Preserve working structure: keep registerParam names, register_region IDs, emit_events usage, and the overall onUpdate/onRender flow unless a failure requires changing them.
+- Do not refactor for style. Do not rename variables for clarity. Do not add alternate implementations.
+`.trim()
+  }
+  return `
+REPAIR MODE (behavioral verification):
+- You are revising a previous candidate that already passes static checks. Make the smallest set of edits so headless probes satisfy the design document's verification invariants (metrics in event payloads, physics/math consistency, etc.).
+- Preserve param names, region IDs, event IDs, and render/update structure unless an invariant fix requires a targeted change.
+- Do not rewrite the sim from scratch unless the failures are unfixable with local edits.
+`.trim()
+}
+
+export function buildSimBuilderPrompt(
+  designDoc: DesignDoc,
+  previousErrors: string[],
+  extraHint = '',
+  options?: BuildSimBuilderPromptOptions,
+): string {
+  const previousSimCode = options?.previousSimCode?.trim()
+  const repairIntent = options?.repairIntent
+  const isRepair = Boolean(previousSimCode && repairIntent)
+
+  const errorContext = [
+    previousErrors.length > 0
+      ? isRepair && repairIntent
+        ? `Issues to fix (${repairIntent === 'behavioral_repair' ? 'verification / invariants' : 'static validation'}): ${previousErrors.join(', ')}. Address every listed item.`
+        : `Previous attempt failed validation with: ${previousErrors.join(', ')}. Fix every listed issue explicitly.`
+      : '',
+    extraHint,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  const previousCodeSection = (() => {
+    if (!isRepair || !previousSimCode || !repairIntent) return ''
+    const { block, truncated } = formatPreviousSimForPrompt(previousSimCode)
+    const truncNote = truncated ? ' (prompt truncated from full source)' : ''
+    return `
+
+${repairModeBlock(repairIntent)}
+
+PREVIOUS SIMULATION CODE (revise this; output a full replacement body, not a diff)${truncNote}:
+${block}
+`
+  })()
+
+  return `You are the sim-builder agent of Praxio's simulation pipeline.
+${isRepair ? 'Revise the simulation code to satisfy the design document and the issues below.' : 'Generate sandbox-safe simulation code from the design document.'}
 
 ${PASS2_RUNTIME_CONTRACT}
 
@@ -226,6 +328,7 @@ ${JSON.stringify(designDoc, null, 2)}
 IMPLEMENTATION CHECKLIST:
 - Create one registerParam call per designDoc.params entry (exact names/ranges/defaults/labels/units when present).
 - Use the returned getters for physics/state updates.
+- If designDoc.primitive is set, use runtime.physics / runtime.math as required in the contract above.
 - Add regions from designDoc.register_regions using runtime.registerRegion(name, { getPosition }) with iframe CSS-pixel coordinates.
 - Add pedagogically meaningful event emission using designDoc.emit_events.
 - Ensure onUpdate advances state and onRender draws the current state.
@@ -234,8 +337,8 @@ IMPLEMENTATION CHECKLIST:
 - Keep geometry responsive to viewport/context size; avoid fixed off-screen coordinates.
 - Keep code robust for malformed student interactions without hiding failures silently.
 - Do not include example/demo code, comments about usage, or alternate implementations.
-
-Return only the final JavaScript body that should be executed by new Function(runtime, code).${errorContext}`
+${previousCodeSection}
+Return only the final JavaScript body that should be executed by new Function(runtime, code).${errorContext ? `\n\n${errorContext}` : ''}`
 }
 
 function formatSocraticPlan(designDoc: DesignDoc): string {

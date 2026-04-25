@@ -47,30 +47,28 @@ The student's entry point. They arrive here every time — there is no persisten
 
 **Route:** `/` (same route, transitional screen — no URL change) or a transient overlay
 
-A full-screen centered page shown immediately after the student submits a concept. Stays visible while Pass 1, Pass 2, and behavioral verification run (~10–25s total). Replaces the Landing input; student cannot interact.
+A full-screen centered page shown immediately after the student submits a concept. Stays visible while generation runs. Replaces the Landing input; student cannot interact.
 
-**Purpose:** Show meaningful progress so the wait feels productive rather than broken.
+**Purpose:** Show meaningful real-time progress so the wait feels productive rather than broken.
 
-**Layout:** Centered column — logo + concept quote → four-step progress list → status line at bottom.
+**Transport:** The client uses `POST /api/generate?stream=1` and consumes NDJSON: `progress_step_*` events drive which row is **active**; **done** rows advance as steps complete. Do not infer step order from fake timers. Optional `attempt` events mirror internal pipeline traces (retries, failures).
 
-**Progress steps (shown sequentially as each completes):**
-1. **Pass 1 — concept → design doc** — step activates immediately on submit; shows a code/JSON snippet when active or done
-2. **Pass 2 — design doc → sim module** — activates when Pass 1 returns; shows generated sim code snippet
-3. **Verify — behavioral invariants** — activates after static code validation; shows pass/fail checks for probe cases
-4. **Sandbox — iframe runtime loading** — activates when verification passes; shows postMessage bridge status
+**Layout:** Centered column — logo + concept quote → five-step progress list → short status line at bottom.
 
-Each step has three visual sub-states:
-- **Pending** — dimmed, no icon
-- **Active** — pulsing dot icon, label in accent color, code snippet fades in below
-- **Done** — filled checkmark icon, label in full text color, snippet remains visible
+**Progress steps (labels):**
+1. **Curriculum Agent** — design doc core (params, socratic plan, etc.)
+2. **Verification Spec Agent** — probes + invariants (includes design-doc consistency in the same UX row)
+3. **Sim Builder Agent** — sim code generation + static validation
+4. **Behavioral Verify** — probe/invariant checks in headless runtime
+5. **Sandbox load** — becomes active on successful API `result` while the app navigates to the workspace. Completion is not shown until the iframe reports `MANIFEST` (simulation runtime ready); the workspace page shows a blocking overlay until then.
 
-**Status line:** Small monospaced text below the step list — `generating simulation via Gemma 4 31B-it…` during generation, `checking model behavior…` during verification, `launching workspace…` once all steps complete.
+**Row states (simplified for implementation):** pending (dim) / active (pulse) / done (check) / failed (if terminal error in that row).
 
-**States:**
-- **Generating** — steps progress 1 → 2 → 3 → 4 as API calls return and verification passes
-- **Error** — generation failed; return to Landing with error message (error handling TBD — see GAPS.md)
+**Status line** reflects generation vs. handoff to the workspace.
 
-**Navigation out:** On all steps complete → Workspace page (new workspace ID)
+**Error:** Failed stages map from `error.phase` on the final stream `error` event; return to Landing with the error message.
+
+**Navigation out:** After `result` (success) → `/workspace/:id` (with optional sessionStorage for unsaved local workspaces)
 
 ---
 
@@ -94,7 +92,7 @@ The main session view. Vertically stacked layout — simulation fills the screen
 - **TutorStrip** (80px) — three horizontal sections: waveform/status (left, 180px) | tutor question (center, flex) | student input + speak button (right, 200px)
 
 **States:**
-- **Loading sim** — iframe loading, no controls yet
+- **Loading sim / sandbox** — full-screen overlay until the first **manifest** is received from the sim iframe (`postMessage`); then controls and tutor are usable
 - **Sim ready / staging** — tutor applies initial `lock()` / `highlight()` before first question
 - **Active tutor loop** — normal interaction, tutor questions stream
 - **Tutor speaking** — TTS playing; waveform animates, status reads `● tutor speaking`
@@ -120,10 +118,11 @@ Landing
   ▼
 Generation Loading (full-screen)
   │
-  ├─ Step 1: Pass 1 running → design doc returned
-  ├─ Step 2: Pass 2 running → sim code returned
-  ├─ Step 3: behavioral verification running → invariant report returned
-  ├─ Step 4: Sandbox / iframe bridge initializing
+  ├─ Step 1: Curriculum agent running → design doc core returned
+  ├─ Step 2: Verification-spec agent running → probes/invariants returned
+  ├─ Step 3: Sim-builder agent running → sim code returned
+  ├─ Step 4: behavioral verification running → invariant report returned
+  ├─ Step 5: Sandbox / iframe bridge initializing
   │
   ├─ failure → return to Landing with error
   │
@@ -206,13 +205,17 @@ Back to Landing (new concept) or replay/challenge in-place
   <LogoMark />
   <ConceptQuote />              ← the submitted concept shown in quotes
   <StepList>
-    <StepItem                   ← Pass 1 — concept → design doc
+    <StepItem                   ← Curriculum Agent — concept → design doc core
       state="pending|active|done"
-      label="Pass 1 — concept → design doc"
+      label="Curriculum Agent — concept → design doc core"
       snippet={jsonPreview} />
-    <StepItem                   ← Pass 2 — design doc → sim module
+    <StepItem                   ← Verification Spec Agent — probes + invariants
       state="pending|active|done"
-      label="Pass 2 — design doc → sim module"
+      label="Verification Spec Agent — probes + invariants"
+      snippet={verificationSpecPreview} />
+    <StepItem                   ← Sim Builder Agent — design doc → sim module
+      state="pending|active|done"
+      label="Sim Builder Agent — design doc → sim module"
       snippet={codePreview} />
     <StepItem                   ← Verify — behavioral invariants
       state="pending|active|done|failed"
@@ -282,7 +285,7 @@ Back to Landing (new concept) or replay/challenge in-place
 
 - **SimEventHint in TutorStrip:** Whether to surface the triggering sim event below the tutor question (the `↳` line) is undecided. It is sent to the tutor but may not need to be shown to the student.
 - **Error recovery in Workspace:** If a tutor call fails mid-session, what does the student see? Retry button? Silent retry? Not specified.
-- **Generation error recovery:** If Pass 1 or Pass 2 fails, the LoadingPage should return to Landing with an error message, but the exact error UX (toast, inline, full error state) is not designed.
+- **Generation error recovery:** If curriculum-agent, verification-spec-agent, or sim-builder-agent fails, the LoadingPage should return to Landing with an error message, but the exact error UX (toast, inline, full error state) is not designed.
 - **Branch/checkpoint UI:** The Hi-Fi shows branch and checkpoint count in the TopBar pill only. Full branch-switching and checkpoint-restore UX in Workspace remains unresolved; Landing-level workspace resume is now specified.
 - **LoadingPage route:** Whether the generation loading screen lives at the same route as Landing (transitional overlay) or a dedicated route (e.g. `/generating`) is TBD in implementation.
 - **Completion card density:** Whether post-session completion actions should be a single compact card or a two-step sequence (summary first, actions second) is not yet decided.
@@ -290,5 +293,5 @@ Back to Landing (new concept) or replay/challenge in-place
 ## Resolved
 
 - **Params panel placement:** ~~overlaid on top~~ — `ParamPanel` floats over the sim iframe at top-left (absolute positioned). Resolved by Hi-Fi.
-- **Generation progress:** ~~single spinner~~ — three explicit step rows (Pass 1, Pass 2, Sandbox) with active/done states and code snippets. Resolved by Hi-Fi.
+- **Generation progress:** ~~single spinner~~ — explicit generation-step rows (curriculum, verification spec, sim builder, sandbox) with active/done states and code snippets. Resolved by Hi-Fi.
 - **Workspace layout:** ~~three-panel~~ — vertical stack: TopBar + SimArea (full-width, full-height) + TutorStrip (80px bottom bar). Resolved by Hi-Fi.

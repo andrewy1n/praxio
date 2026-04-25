@@ -3,6 +3,7 @@ import {
   runGenerationPipeline,
 } from '@/lib/generationPipeline'
 import { createWorkspaceWithMainBranch } from '@/lib/workspaceDb'
+import type { GenerateStreamEvent } from '@/lib/types'
 import type { NextRequest } from 'next/server'
 import { randomUUID } from 'crypto'
 
@@ -14,15 +15,25 @@ export async function POST(req: NextRequest) {
     const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
 
     if (!concept) {
-      return Response.json({ error: 'Concept is required', phase: 'pass1' }, { status: 400 })
+      return Response.json(
+        { error: 'Concept is required', phase: 'requestValidation' },
+        { status: 400 },
+      )
     }
     if (!sessionId) {
-      return Response.json({ error: 'sessionId is required', phase: 'pass1' }, { status: 400 })
+      return Response.json(
+        { error: 'sessionId is required', phase: 'requestValidation' },
+        { status: 400 },
+      )
     }
 
-    const debug =
-      process.env.PRAXIO_DEBUG_GENERATION === '1'
-      || req.headers.get('x-praxio-debug') === '1'
+    const debug
+      = process.env.PRAXIO_DEBUG_GENERATION === '1'
+        || req.headers.get('x-praxio-debug') === '1'
+
+    const logGenerationIo
+      = debug
+        || process.env.PRAXIO_LOG_GENERATION_IO === '1'
 
     if (streamProgress) {
       const encoder = new TextEncoder()
@@ -34,10 +45,16 @@ export async function POST(req: NextRequest) {
 
           void (async () => {
             try {
-              write({ type: 'started' })
+              write({ type: 'started' } satisfies GenerateStreamEvent)
               const result = await runGenerationPipeline(concept, {
                 debug,
-                onAttempt: (attempt) => write({ type: 'attempt', attempt }),
+                logGenerationIo,
+                onAttempt: (attempt) => {
+                  write({ type: 'attempt', attempt: attempt as unknown as Record<string, unknown> })
+                },
+                onProgress: (ev) => {
+                  write(ev)
+                },
               })
               const { trace, ...rest } = result
               let workspaceId: string | undefined
@@ -58,7 +75,7 @@ export async function POST(req: NextRequest) {
                     status: 503,
                     error: {
                       error: 'Failed to save workspace',
-                      phase: 'pass1',
+                      phase: 'requestValidation',
                     },
                   })
                   controller.close()
@@ -70,15 +87,20 @@ export async function POST(req: NextRequest) {
               controller.close()
             } catch (error) {
               if (error instanceof GenerationFailedError) {
-                const status =
-                  error.body.phase === 'designDocConsistency' ? 422
+                const status
+                  = error.body.phase === 'designDocConsistency' ? 422
                     : error.body.phase === 'template' ? 500
                       : 500
                 write({ type: 'error', status, error: error.body })
               } else {
-                const message = error instanceof Error ? error.message : 'Unknown server error'
+                const message
+                  = error instanceof Error ? error.message : 'Unknown server error'
                 console.error('[api/generate] unhandled error', { message, error })
-                write({ type: 'error', status: 500, error: { error: message, phase: 'pass1' } })
+                write({
+                  type: 'error',
+                  status: 500,
+                  error: { error: message, phase: 'requestValidation' },
+                })
               }
               controller.close()
             }
@@ -94,7 +116,7 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const result = await runGenerationPipeline(concept, { debug })
+    const result = await runGenerationPipeline(concept, { debug, logGenerationIo })
     const { trace, ...rest } = result
 
     let workspaceId: string | undefined
@@ -111,7 +133,7 @@ export async function POST(req: NextRequest) {
       } catch (persistErr) {
         console.error('[api/generate] workspace persist', persistErr)
         return Response.json(
-          { error: 'Failed to save workspace', phase: 'pass1' },
+          { error: 'Failed to save workspace', phase: 'requestValidation' },
           { status: 503 },
         )
       }
@@ -126,14 +148,17 @@ export async function POST(req: NextRequest) {
     return Response.json(payload)
   } catch (error) {
     if (error instanceof GenerationFailedError) {
-      const status =
-        error.body.phase === 'designDocConsistency' ? 422
-        : error.body.phase === 'template' ? 500
-        : 500
+      const status
+        = error.body.phase === 'designDocConsistency' ? 422
+          : error.body.phase === 'template' ? 500
+            : 500
       return Response.json(error.body, { status })
     }
     const message = error instanceof Error ? error.message : 'Unknown server error'
     console.error('[api/generate] unhandled error', { message, error })
-    return Response.json({ error: message, phase: 'pass1' }, { status: 500 })
+    return Response.json(
+      { error: message, phase: 'requestValidation' },
+      { status: 500 },
+    )
   }
 }

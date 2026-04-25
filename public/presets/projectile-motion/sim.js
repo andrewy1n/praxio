@@ -10,53 +10,51 @@ runtime.registerEvent('landed')
 
 let active = false
 let simTime = 0
-let flightTime = 0
-let rangeM = 0
+let traj = null
 let _groundY = 0
 const trail = []
 
 function getGroundY() { return _groundY || 400 }
 
-function computeTrajectory(speed, angle_deg) {
-  const a = angle_deg * Math.PI / 180
-  const T = (2 * speed * Math.sin(a)) / G
-  return { T, R: speed * Math.cos(a) * T }
+function makeTrajectory() {
+  return runtime.physics.projectile(getSpeed(), getAngle(), G)
 }
 
 runtime.registerRegion('launch_point', { getPosition: () => ({ x: LAUNCH_X_PX, y: getGroundY() }) })
 runtime.registerRegion('peak_trajectory', {
   getPosition: () => {
-    const a = getAngle() * Math.PI / 180
-    const vy = getSpeed() * Math.sin(a), vx = getSpeed() * Math.cos(a)
-    const tApex = vy / G
-    return { x: LAUNCH_X_PX + vx * tApex * SCALE, y: getGroundY() - (vy * tApex - 0.5 * G * tApex * tApex) * SCALE }
-  }
+    const tr = makeTrajectory()
+    const p = tr.positionAt(tr.peak.t)
+    return { x: LAUNCH_X_PX + p.x_m * SCALE, y: getGroundY() - p.y_m * SCALE }
+  },
 })
 runtime.registerRegion('landing_point', {
   getPosition: () => {
-    const { T } = computeTrajectory(getSpeed(), getAngle())
-    return { x: LAUNCH_X_PX + getSpeed() * Math.cos(getAngle() * Math.PI / 180) * T * SCALE, y: getGroundY() }
-  }
+    const tr = makeTrajectory()
+    return { x: LAUNCH_X_PX + tr.range * SCALE, y: getGroundY() }
+  },
 })
 
 runtime.onLaunch(function() {
-  const traj = computeTrajectory(getSpeed(), getAngle())
-  flightTime = traj.T; rangeM = traj.R; simTime = 0; active = true
+  traj = makeTrajectory()
+  simTime = 0; active = true
   trail.length = 0
   runtime.emit('launched', {})
 })
 
 runtime.onReset(function() {
-  active = false; simTime = 0; rangeM = 0; trail.length = 0
+  active = false; simTime = 0; traj = null; trail.length = 0
 })
 
 runtime.onUpdate(function(dt) {
-  if (!active) return
+  if (!active || !traj) return
   simTime += dt
-  if (simTime >= flightTime) {
-    simTime = flightTime; active = false
+  if (traj.didLand(simTime)) {
+    simTime = traj.flightTime; active = false
+    const rangeM = traj.range
+    const tof = traj.flightTime
     runtime.reportPhase('done')
-    runtime.emit('landed', { range_m: Math.round(rangeM * 10) / 10, time_of_flight_s: Math.round(flightTime * 10) / 10 })
+    runtime.emit('landed', { range_m: Math.round(rangeM * 10) / 10, time_of_flight_s: Math.round(tof * 10) / 10 })
   }
 })
 
@@ -65,8 +63,9 @@ runtime.onRender(function(p) {
   const groundY = _groundY
   const angle_deg = getAngle(), speed = getSpeed()
   const angle = angle_deg * Math.PI / 180
-  const vx = speed * Math.cos(angle), vy = speed * Math.sin(angle)
-  const { T } = computeTrajectory(speed, angle_deg)
+  const trPreview = makeTrajectory()
+  const arcTr = traj || trPreview
+  const T = arcTr.flightTime
 
   // Sky gradient background
   for (let y = 0; y < groundY; y++) {
@@ -128,7 +127,6 @@ runtime.onRender(function(p) {
     const ay = groundY - Math.sin(angle) * arrowLen
     p.stroke(250, 204, 21, 120); p.strokeWeight(1.5)
     p.line(LAUNCH_X_PX, groundY - 4, ax, ay)
-    // Arrow head
     const headLen = 7
     const headAngle1 = angle + 2.6
     const headAngle2 = angle - 2.6
@@ -137,9 +135,10 @@ runtime.onRender(function(p) {
   }
 
   // Trail dots
-  if (active) {
-    const ballX = LAUNCH_X_PX + vx * simTime * SCALE
-    const ballY = groundY - (vy * simTime - 0.5 * G * simTime * simTime) * SCALE
+  if (active && traj) {
+    const pos = traj.positionAt(simTime)
+    const ballX = LAUNCH_X_PX + pos.x_m * SCALE
+    const ballY = groundY - pos.y_m * SCALE
     if (trail.length === 0 || p.dist(ballX, ballY, trail[trail.length - 1].x, trail[trail.length - 1].y) > 6) {
       trail.push({ x: ballX, y: ballY })
     }
@@ -151,46 +150,46 @@ runtime.onRender(function(p) {
     p.circle(trail[i].x, trail[i].y, sz)
   }
 
-  // Completed arc (shown after landing)
-  if (!active && simTime > 0) {
+  // Completed arc (shown after landing) — uses flight trajectory from runtime.physics.projectile
+  if (!active && simTime > 0 && traj) {
     p.stroke(96, 165, 250, 55); p.strokeWeight(1.5); p.noFill()
     p.beginShape()
     for (let ti = 0; ti <= T; ti += T / 80) {
-      p.vertex(LAUNCH_X_PX + vx * ti * SCALE, groundY - (vy * ti - 0.5 * G * ti * ti) * SCALE)
+      const pos = arcTr.positionAt(ti)
+      p.vertex(LAUNCH_X_PX + pos.x_m * SCALE, groundY - pos.y_m * SCALE)
     }
-    p.vertex(LAUNCH_X_PX + vx * T * SCALE, groundY)
+    p.vertex(LAUNCH_X_PX + arcTr.range * SCALE, groundY)
     p.endShape()
   }
 
-  // Ball — sit at muzzle tip pre-launch, fly during active, stay at landing after done
+  // Ball — muzzle, flight (primitive path), or landing
   const ct = simTime
   let ballX, ballY
   if (!active && simTime === 0) {
     ballX = LAUNCH_X_PX + Math.cos(angle) * 42
     ballY = groundY - Math.sin(angle) * 42
+  } else if (traj) {
+    const pos = traj.positionAt(Math.min(ct, traj.flightTime))
+    ballX = LAUNCH_X_PX + pos.x_m * SCALE
+    ballY = groundY - pos.y_m * SCALE
   } else {
-    ballX = LAUNCH_X_PX + vx * ct * SCALE
-    ballY = groundY - (vy * ct - 0.5 * G * ct * ct) * SCALE
+    ballX = LAUNCH_X_PX; ballY = groundY
   }
-  // Glow
   p.noStroke(); p.fill(96, 165, 250, 30)
   p.circle(ballX, ballY, 30)
   p.fill(96, 165, 250, 60)
   p.circle(ballX, ballY, 20)
-  // Ball body
   p.fill(96, 165, 250); p.noStroke()
   p.circle(ballX, ballY, 13)
-  // Highlight
   p.fill(200, 225, 255, 160)
   p.circle(ballX - 2, ballY - 2, 5)
 
-  // Landing marker
-  if (!active && simTime > 0) {
-    const landingX = LAUNCH_X_PX + vx * T * SCALE
+  const rangeM = arcTr.range
+  if (!active && simTime > 0 && traj) {
+    const landingX = LAUNCH_X_PX + arcTr.range * SCALE
     p.stroke(250, 204, 21, 180); p.strokeWeight(1.5)
     p.line(landingX - 8, groundY - 4, landingX + 8, groundY - 4)
     p.line(landingX, groundY - 10, landingX, groundY + 2)
-    // Range label with background
     const midX = (LAUNCH_X_PX + landingX) / 2
     p.noStroke(); p.fill(0, 0, 0, 140)
     p.rect(midX - 54, groundY - 26, 108, 18, 4)
@@ -198,7 +197,6 @@ runtime.onRender(function(p) {
     p.text('Range: ' + rangeM.toFixed(1) + ' m', midX, groundY - 13)
   }
 
-  // Angle / speed HUD
   const hudX = LAUNCH_X_PX + 46, hudY = groundY - 24
   p.noStroke(); p.fill(0, 0, 0, 130)
   p.rect(hudX - 4, hudY - 13, 112, 18, 3)

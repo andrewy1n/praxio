@@ -30,12 +30,17 @@
   // ── Renderer context ───────────────────────────────────────────────────────
 
   const renderer = window.__SIM_RENDERER__ || 'canvas2d'
+  const w = typeof window !== 'undefined' ? window : self
   let rendererContext = null
   let resizeHandler = null
 
   // ── SDK surface exposed to generated sim code ──────────────────────────────
+  // Primitives live in /runtime-primitives/*.js (loaded before this file in iframes).
 
   const runtime = {
+    physics: w.__praxioRuntimePhysics,
+    math: w.__praxioRuntimeMath,
+
     registerParam(name, options) {
       params[name] = {
         value: options.default,
