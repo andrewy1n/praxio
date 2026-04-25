@@ -18,11 +18,26 @@ The student's entry point. They arrive here every time — there is no persisten
 - Type a concept into a text input
 - Speak a concept via microphone (ElevenLabs STT — opt-in via mic toggle)
 - Submit to trigger `/api/generate`
+- Open a recent workspace from the session list
 
 **States:**
 - **Idle** — input empty, mic toggle visible
 - **Recording** — mic active, live transcription visible in input
 - **Error** — generation failed (show retry, no crash)
+- **Recent workspaces available** — session-scoped list appears below concept input
+- **No recent workspaces** — empty-state copy shown in the same slot
+
+**Recent workspaces panel (Landing)**
+
+- Title: `Recent workspaces`
+- Scope: workspaces for current `sessionId` only (no auth, no cross-device sync)
+- Sorting: descending by `lastActiveAt` (fallback `createdAt`)
+- Grouping: `Today` and `Earlier`
+- Row fields: concept, relative time, status badge (`in progress` or `completed`)
+- Row actions:
+  - `Resume` → `/workspace/[workspaceId]`
+  - `Replay last step` (only for completed sessions)
+- Empty state: `No recent workspaces yet`
 
 **Navigation out:** On submit → Generation Loading page
 
@@ -146,10 +161,19 @@ TutorStrip waveform animates, status → "● tutor speaking"
 └─────────────────────────────────────┘
   │
   ▼
-Student understands concept → session ends naturally
+All Socratic steps complete → explicit completion state
+  │
+  ├─ Tutor emits 1 synthesis turn grounded in student actions
+  ├─ Tutor asks 1 transfer question (new condition, same concept)
+  ├─ Student answers transfer question (optional but encouraged)
+  │
+  ├─ Completion actions:
+  │    • Try challenge
+  │    • Replay step
+  │    • New concept
   │
   ▼
-(Optional) Back to Landing for new concept
+Back to Landing (new concept) or replay/challenge in-place
 ```
 
 ---
@@ -166,6 +190,11 @@ Student understands concept → session ends naturally
     <SubmitButton />
     <LiveTranscript />          ← shown only while mic active
   </ConceptInput>
+  <RecentWorkspacesPanel>        ← session-scoped list under ConceptInput
+    <WorkspaceRow />             ← concept, updated time, status
+    <ResumeButton />
+    <ReplayButton />             ← completed-only
+  </RecentWorkspacesPanel>
   <ErrorMessage />              ← shown on generation failure (returned from LoadingPage)
 </LandingPage>
 ```
@@ -254,8 +283,9 @@ Student understands concept → session ends naturally
 - **SimEventHint in TutorStrip:** Whether to surface the triggering sim event below the tutor question (the `↳` line) is undecided. It is sent to the tutor but may not need to be shown to the student.
 - **Error recovery in Workspace:** If a tutor call fails mid-session, what does the student see? Retry button? Silent retry? Not specified.
 - **Generation error recovery:** If Pass 1 or Pass 2 fails, the LoadingPage should return to Landing with an error message, but the exact error UX (toast, inline, full error state) is not designed.
-- **Branch/checkpoint UI:** The Hi-Fi shows branch and checkpoint count in the TopBar pill only. The full branch-switching and checkpoint-restore UX (previously a sidebar) has no Hi-Fi representation yet — how students create branches or restore checkpoints is unresolved.
+- **Branch/checkpoint UI:** The Hi-Fi shows branch and checkpoint count in the TopBar pill only. Full branch-switching and checkpoint-restore UX in Workspace remains unresolved; Landing-level workspace resume is now specified.
 - **LoadingPage route:** Whether the generation loading screen lives at the same route as Landing (transitional overlay) or a dedicated route (e.g. `/generating`) is TBD in implementation.
+- **Completion card density:** Whether post-session completion actions should be a single compact card or a two-step sequence (summary first, actions second) is not yet decided.
 
 ## Resolved
 

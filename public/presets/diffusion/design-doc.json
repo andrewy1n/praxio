@@ -1,0 +1,128 @@
+{
+  "concept": "diffusion",
+  "domain": "chemistry",
+  "renderer": "canvas2d",
+  "episodic": false,
+  "params": [
+    {
+      "name": "diffusion_coeff",
+      "range": [0.05, 1.5],
+      "default": 0.3,
+      "label": "Diffusion Coefficient (D)",
+      "unit": ""
+    },
+    {
+      "name": "initial_concentration",
+      "range": [0.3, 1.0],
+      "default": 0.8,
+      "label": "Initial Concentration",
+      "unit": ""
+    }
+  ],
+  "governing_equations": [
+    "\\frac{\\partial C}{\\partial t} = D \\frac{\\partial^2 C}{\\partial x^2}",
+    "J = -D \\frac{dC}{dx}  \\text{ (Fick's first law: flux is proportional to gradient)}",
+    "\\tau \\approx \\frac{L^2}{\\pi^2 D}  \\text{ (characteristic relaxation time)}"
+  ],
+  "emit_events": ["half_equilibrium", "near_equilibrium"],
+  "register_regions": ["left_chamber", "right_chamber", "gradient_zone"],
+  "initial_staging": {
+    "locked": ["diffusion_coeff", "initial_concentration"],
+    "highlighted": ["diffusion_coeff"]
+  },
+  "socratic_plan": [
+    {
+      "id": "predict_spread",
+      "question": "Draw on the canvas where you think the blue concentration will be after some time. Will it stay on the left, spread evenly, or something else?",
+      "learning_goal": "Student externalises their mental model of concentration spreading before observing it",
+      "exit_condition": "Student submits a sketch",
+      "interaction": { "kind": "prediction_sketch" },
+      "staging": { "lock": ["diffusion_coeff", "initial_concentration"], "highlight": ["diffusion_coeff"] }
+    },
+    {
+      "id": "locate_gradient",
+      "question": "Click on where you think diffusion is happening the fastest right now.",
+      "learning_goal": "Student identifies that the steepest concentration gradient drives the highest flux",
+      "exit_condition": "Student clicks near the membrane / gradient zone",
+      "interaction": { "kind": "click_to_query", "regions": ["gradient_zone"] },
+      "staging": { "unlock": ["diffusion_coeff"], "highlight": ["gradient_zone"] }
+    },
+    {
+      "id": "explore_D",
+      "question": "What happens to how quickly the concentrations equalise when you increase D? Try it.",
+      "learning_goal": "Student discovers that D directly controls the rate of spreading — it is the diffusion coefficient",
+      "exit_condition": "Student observes and describes faster equilibration at higher D",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "unlock": ["diffusion_coeff"], "highlight": ["diffusion_coeff"], "lock": ["initial_concentration"] }
+    },
+    {
+      "id": "explore_initial_concentration",
+      "question": "Now keep D the same and change the initial concentration. Does that change how fast the two sides equalise?",
+      "learning_goal": "Student discovers that the rate (time to equalise) is independent of the initial concentration for linear diffusion",
+      "exit_condition": "Student notices the equalisation speed is unchanged",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "unlock": ["initial_concentration"], "highlight": ["initial_concentration"], "lock": ["diffusion_coeff"] }
+    },
+    {
+      "id": "explain_equilibrium",
+      "question": "Why does net diffusion stop once the concentrations on both sides are equal, even though molecules are still moving?",
+      "learning_goal": "Student connects the cessation of net flux to the zero concentration gradient at equilibrium",
+      "exit_condition": "Student articulates that equal concentrations mean zero gradient and therefore zero net flux",
+      "interaction": { "kind": "verbal_response" },
+      "staging": {
+        "annotate": [
+          { "region": "gradient_zone", "text": "Steepest gradient → max flux (Fick's 1st Law)" },
+          { "region": "right_chamber", "text": "Flux direction: high → low concentration" }
+        ]
+      }
+    }
+  ],
+  "verification": {
+    "summary": "Higher D reaches near-equilibrium faster; time to equilibrium is independent of initial concentration for linear diffusion.",
+    "probes": [
+      {
+        "id": "low_D",
+        "description": "Low diffusion coefficient — slow approach to equilibrium",
+        "params": { "diffusion_coeff": 0.1, "initial_concentration": 0.8 },
+        "expected_metrics": ["time_s"]
+      },
+      {
+        "id": "high_D",
+        "description": "High diffusion coefficient — fast approach to equilibrium",
+        "params": { "diffusion_coeff": 1.0, "initial_concentration": 0.8 },
+        "expected_metrics": ["time_s"]
+      },
+      {
+        "id": "low_c0",
+        "description": "Low initial concentration, mid D",
+        "params": { "diffusion_coeff": 0.4, "initial_concentration": 0.35 },
+        "expected_metrics": ["time_s"]
+      },
+      {
+        "id": "high_c0",
+        "description": "High initial concentration, mid D",
+        "params": { "diffusion_coeff": 0.4, "initial_concentration": 0.9 },
+        "expected_metrics": ["time_s"]
+      }
+    ],
+    "invariants": [
+      {
+        "kind": "monotonic",
+        "id": "D_rate_monotonic",
+        "description": "Higher D should reach near-equilibrium in less wall time.",
+        "probe_order": ["low_D", "high_D"],
+        "metric": "time_s",
+        "direction": "decreasing"
+      },
+      {
+        "kind": "approximately_equal",
+        "id": "concentration_independence",
+        "description": "Time to near-equilibrium should be the same regardless of initial concentration (same D).",
+        "left_probe": "low_c0",
+        "right_probe": "high_c0",
+        "metric": "time_s",
+        "tolerance_percent": 15
+      }
+    ]
+  }
+}

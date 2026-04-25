@@ -32,6 +32,108 @@ type GenerateErrorResponse = {
 }
 ```
 
+### `GET /api/workspaces`
+
+Lists recent workspaces for the current anonymous session.
+
+**Request**
+```typescript
+type ListWorkspacesQuery = {
+  sessionId: string
+  limit?: number // default 20, max 50
+}
+```
+
+**Response**
+```typescript
+type WorkspaceListItem = {
+  workspaceId: string
+  concept: string
+  domain: DesignDoc['domain']
+  renderer: DesignDoc['renderer']
+  status: 'in_progress' | 'completed'
+  createdAt: string
+  lastActiveAt: string
+  completedAt?: string
+  completionSummary?: string
+}
+
+type ListWorkspacesResponse = {
+  items: WorkspaceListItem[]
+}
+```
+
+**Behavior**
+
+- Returns workspaces for `sessionId` only.
+- Sorted by `lastActiveAt` descending.
+- Designed for Landing `Recent workspaces` panel and Workspace switchers.
+
+### `GET /api/workspaces/:workspaceId`
+
+Fetches one workspace for resume/re-entry.
+
+**Request**
+```typescript
+type GetWorkspaceParams = {
+  workspaceId: string
+}
+```
+
+**Response**
+```typescript
+type GetWorkspaceResponse = {
+  workspace: {
+    workspaceId: string
+    sessionId: string
+    concept: string
+    domain: DesignDoc['domain']
+    renderer: DesignDoc['renderer']
+    designDoc: DesignDoc
+    status: 'in_progress' | 'completed'
+    createdAt: string
+    lastActiveAt: string
+    completedAt?: string
+  }
+  branch?: {
+    branchId: string
+    name: string
+    checkpoints: Checkpoint[]
+    conversationHistory: TutorMessage[]
+  }
+  completion?: SessionCompletionState
+}
+```
+
+**Behavior**
+
+- Rejects cross-session access (`workspace.sessionId` must match requester `sessionId`).
+- If `status === 'completed'`, `completion` should be returned so UI can open in
+  post-session completion mode (synthesis + transfer question + completion actions)
+  instead of restarting step progression.
+
+### `PATCH /api/workspaces/:workspaceId`
+
+Updates session progress metadata used by recent-workspace/resume UI.
+
+**Request**
+```typescript
+type UpdateWorkspaceRequest = {
+  sessionId: string
+  status?: 'in_progress' | 'completed'
+  lastActiveAt?: string
+  completedAt?: string
+  completionSummary?: string
+}
+```
+
+**Response**
+```typescript
+type UpdateWorkspaceResponse = {
+  ok: true
+}
+```
+
 **Pass 1 — generateObject schema (Zod)**
 ```typescript
 import { z } from 'zod'
@@ -448,7 +550,7 @@ type SpeakRequest = StageRequest & {
 ```
 
 **Response**
-Streaming via Vercel AI SDK `toDataStreamResponse()`. Text chunks only.
+Streaming raw text via `toTextStreamResponse()`. Text chunks only. Note: AI SDK v6 removed `toDataStreamResponse()` — do not use it. The client reads the stream with a `ReadableStream` reader and `TextDecoder`, accumulating chunks directly (no data-stream framing to parse).
 
 **Route skeleton**
 ```typescript
@@ -472,9 +574,85 @@ export async function POST(req: Request) {
     // no tools — removes text/tool competition that drops text-gen reliability
   })
 
-  return result.toDataStreamResponse()
+  return result.toTextStreamResponse()
 }
 ```
+
+**Client consumption**
+```typescript
+const reader = speakRes.body!.getReader()
+const decoder = new TextDecoder()
+let fullText = ''
+while (true) {
+  const { done, value } = await reader.read()
+  if (done) break
+  fullText += decoder.decode(value, { stream: true })
+  // update UI on each chunk for word-by-word streaming
+}
+```
+
+### Socratic Session Completion Contract
+
+When all `designDoc.socratic_plan` steps are complete, the workspace enters an explicit
+completion state instead of continuing the normal loop indefinitely.
+
+**Completion criteria**
+
+- Each step is marked complete when its `exit_condition` has been satisfied by observed
+  interactions/events in the session state machine.
+- Session completion occurs when every step in `socratic_plan` is complete.
+
+**Completion response shape**
+```typescript
+type SessionCompletionState = {
+  isComplete: boolean
+  completedStepIds: string[]
+  completedAt?: number
+  summary?: {
+    // One concise reconciliation turn grounded in the student's actions.
+    synthesis: string
+    // One transfer check to test understanding in a new condition.
+    transferQuestion: string
+  }
+}
+```
+
+**Post-completion tutor behavior**
+
+- The tutor emits one short synthesis turn grounded in what the student did
+  (prediction/manipulation/observation), not a generic recap.
+- The tutor then asks one transfer question that changes conditions while preserving
+  the core concept.
+- After the transfer response, tutor calls become user-driven (e.g. replay/challenge),
+  not automatic step progression.
+
+**Persistence artifact (per workspace session)**
+
+Store a compact completion artifact for retrieval and future UX:
+
+```typescript
+type SessionLearningArtifact = {
+  sessionId: string
+  workspaceId: string
+  completedStepIds: string[]
+  keyMoments: Array<{
+    stepId: string
+    interactionKind: DesignDoc['socratic_plan'][number]['interaction']['kind']
+    observedEvent: string
+    timestamp: number
+  }>
+  finalSynthesis: string
+  transferQuestion: string
+  transferResponse?: string
+  createdAt: Date
+}
+```
+
+**UI actions exposed on completion**
+
+- `try_challenge` — run the transfer-check path (if not already answered)
+- `replay_step` — reopen a specific step in `socratic_plan`
+- `new_concept` — navigate back to landing
 
 ---
 

@@ -43,7 +43,10 @@ Requirements:
    prediction_sketch = sketch before seeing outcome; numeric_hypothesis = guess a number;
    click_to_query = focus a region; observe_event = wait for a sim event.
    staging lock/highlight/set_params must reference existing param IDs;
+   staging.highlight MUST only contain IDs from params[].name (never region IDs, labels, or UI element names).
    staging annotate[].region must reference register_regions.
+   For numeric_hypothesis, interaction.metric MUST be copied exactly from one of verification.probes[].expected_metrics.
+   Never invent metric aliases; reuse exact spelling/casing from probes.
    Use expected_observation, followup_if_correct, followup_if_surprised when reconciliation matters.
 9) Keep IDs internally consistent across params, events, regions, staging, and
    socratic_plan.

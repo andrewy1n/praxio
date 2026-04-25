@@ -129,6 +129,57 @@ Swap stubs for real API calls once Person A's routes are ready.
 
 ---
 
+## Implementation Order — Workspace Visibility + Resume
+
+Goal: ship a minimal, reliable `Recent workspaces` flow for the anonymous `sessionId`
+model before adding deeper branch UX.
+
+### Phase 1 (Backend contracts first)
+
+**Owner: Person A**
+
+1. Add `GET /api/workspaces` list endpoint (session-scoped, sorted by `lastActiveAt desc`).
+2. Add `GET /api/workspaces/:workspaceId` resume endpoint (session guard, include completion state when present).
+3. Add `PATCH /api/workspaces/:workspaceId` progress metadata endpoint (`status`, `lastActiveAt`, `completedAt`, `completionSummary`).
+4. Ensure write paths update `lastActiveAt` during tutor turns and mark completion metadata when session completes.
+
+Definition of done:
+- Endpoints return shapes defined in `planning/api_contracts.md`.
+- Cross-session reads are rejected.
+
+### Phase 2 (Landing UX + resume entry)
+
+**Owner: Person B**
+
+1. Add `RecentWorkspacesPanel` to Landing under concept input.
+2. Render fields: concept, relative time, status badge; group into `Today` and `Earlier`.
+3. Wire `Resume` action to `/workspace/[workspaceId]`.
+4. Add empty state (`No recent workspaces yet`) and loading/error states.
+
+Definition of done:
+- Fresh session with no rows renders empty state.
+- Existing session rows are visible and resumable.
+
+### Phase 3 (Completion-aware re-entry)
+
+**Owners: A + B**
+
+1. On workspace load, branch by `status`:
+   - `in_progress` → continue normal Socratic loop.
+   - `completed` → open completion state (synthesis + transfer question + completion actions).
+2. Add `Replay last step` entry path for completed sessions.
+3. Keep branch/checkpoint deep UX out-of-scope for this slice.
+
+Definition of done:
+- Completed sessions do not restart from step 1 by default.
+- Replay path is explicit and user-driven.
+
+### Suggested build sequence
+
+`Phase 1` → `Phase 2` → `Phase 3` (strict order to avoid frontend stubbing churn).
+
+---
+
 ## Risk Register
 
 | Risk | Owner | Mitigation |

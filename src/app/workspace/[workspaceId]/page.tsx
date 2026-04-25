@@ -383,8 +383,15 @@ export default function WorkspacePage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...stageBody, appliedToolCalls }),
     })
-    const tutorText = await speakRes.text()
-    setMessages([...next, { role: 'assistant', content: tutorText }])
+    const reader = speakRes.body!.getReader()
+    const decoder = new TextDecoder()
+    let fullText = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      fullText += decoder.decode(value, { stream: true })
+      setMessages([...next, { role: 'assistant', content: fullText }])
+    }
     setIsSpeaking(false)
   }
 

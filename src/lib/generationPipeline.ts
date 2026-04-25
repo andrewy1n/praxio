@@ -16,7 +16,7 @@ import { validateSimModule } from '@/lib/validation'
 import { formatVerificationFailures, verifySimBehavior } from '@/lib/verification'
 import { loadTemplateByDomain } from '@/lib/templateRegistry'
 
-const genModel = google('gemini-3-flash-preview')
+const genModel = google('gemini-2.5-flash')
 
 const MAX_PASS1_ATTEMPTS = 3
 const MAX_STATIC_VALIDATION_ATTEMPTS = 3
@@ -56,6 +56,12 @@ function traceForConsoleLog(t: GenerationTrace): Record<string, unknown> {
       }
     }),
   }
+}
+
+function summarizeErrors(errors: string[], max = 3): string {
+  if (errors.length === 0) return 'unknown error'
+  const shown = errors.slice(0, max).join(' | ')
+  return errors.length > max ? `${shown} | (+${errors.length - max} more)` : shown
 }
 
 export type GenerationAttemptPhase =
@@ -209,13 +215,14 @@ export async function runGenerationPipeline(
   let lastPass1Message = ''
   let lastPass1Diagnosis: Pass1Diagnosis = { zodIssues: [] }
   let lastConsistencyErrors: Array<{ path: string; message: string }> = []
+  let lastConsistencyHint = ''
   let designDocReady = false
 
   for (let pass1Attempt = 1; pass1Attempt <= MAX_PASS1_ATTEMPTS; pass1Attempt++) {
     const t1 = Date.now()
     const retryHint =
       pass1Attempt > 1
-        ? `\n\nYour previous structured output failed validation: ${lastPass1Message}\nRegenerate the full design document. Rules: each socratic_plan step "interaction" must be an object with "kind" (never a bare string). Each param must have "range": [min, max] as two numbers. Use lowercase domain and renderer enum values exactly: physics|math|biology|chemistry|general and p5|canvas2d|jsxgraph|matter.`
+        ? `\n\nYour previous structured output failed validation: ${lastPass1Message}${lastConsistencyHint}\nRegenerate the full design document. Rules: each socratic_plan step "interaction" must be an object with "kind" (never a bare string). Each param must have "range": [min, max] as two numbers. Use lowercase domain and renderer enum values exactly: physics|math|biology|chemistry|general and p5|canvas2d|jsxgraph|matter.`
         : ''
 
     try {
@@ -254,11 +261,24 @@ export async function runGenerationPipeline(
       }
 
       lastConsistencyErrors = consistency.errors
+      lastPass1Message = `Consistency failed (${consistency.errors.length} issue(s))`
+      const summarizedErrors = consistency.errors
+        .slice(0, 8)
+        .map(e => `- ${e.path}: ${e.message}`)
+        .join('\n')
+      const paramNames = designDoc.params.map(p => p.name)
+      const regionIds = designDoc.register_regions
+      const metricIds = Array.from(
+        new Set(designDoc.verification.probes.flatMap(pr => pr.expected_metrics)),
+      )
+      lastConsistencyHint = `\nFix all of these consistency issues exactly:\n${summarizedErrors}\nAllowed IDs for this retry:\n- params[].name: ${paramNames.join(', ') || '(none)'}\n- register_regions: ${regionIds.join(', ') || '(none)'}\n- verification.probes[].expected_metrics: ${metricIds.join(', ') || '(none)'}` +
+        (consistency.errors.length > 8
+          ? `\n(Plus ${consistency.errors.length - 8} additional issue(s) not shown.)`
+          : '')
       const firstErr = consistency.errors[0]
-      lastPass1Message = firstErr
-        ? `Consistency failed: ${firstErr.path}: ${firstErr.message}`
-        : 'Consistency failed'
-      console.warn(`[designDocConsistency] attempt ${pass1Attempt} — ${lastPass1Message}`)
+      console.warn(
+        `[designDocConsistency] attempt ${pass1Attempt} — ${firstErr ? `${firstErr.path}: ${firstErr.message}` : 'Consistency failed'}`,
+      )
 
       if (pass1Attempt === MAX_PASS1_ATTEMPTS) {
         throw new GenerationFailedError({
@@ -333,6 +353,9 @@ export async function runGenerationPipeline(
     trace.pass2GenerationCount++
     const validation = validateSimModule(text)
     const p2 = pass2SnippetForTrace(text)
+    console.log(
+      `[pass2] static attempt ${staticAttemptSeq + 1} generated ${p2.charCount} chars${p2.truncated ? ' (trace truncated)' : ''}`,
+    )
     pushAttempt(trace, {
       phase: 'staticValidation',
       attempt: ++staticAttemptSeq,
@@ -349,8 +372,12 @@ export async function runGenerationPipeline(
 
     if (validation.valid) {
       simCode = text
+      console.log(`[staticValidation] attempt ${staticAttemptSeq} passed`)
       break
     }
+    console.warn(
+      `[staticValidation] attempt ${staticAttemptSeq} failed: ${summarizeErrors(validation.errors)}`,
+    )
     staticLoopErrors = validation.errors
     staticFailCount++
   }
@@ -373,6 +400,15 @@ export async function runGenerationPipeline(
 
   const tV0 = Date.now()
   let verification = await verifySimBehavior(simCode, designDoc)
+  if (verification.passed) {
+    console.log('[behavioralVerification] attempt 1 passed')
+  } else {
+    console.warn(
+      `[behavioralVerification] attempt 1 failed: ${summarizeErrors(
+        verification.checks.filter(c => !c.passed).map(c => c.message),
+      )}`,
+    )
+  }
   pushAttempt(trace, {
     phase: 'behavioralVerification',
     attempt: 1,
@@ -387,6 +423,9 @@ export async function runGenerationPipeline(
   let behaviorRounds = 0
   while (!verification.passed && behaviorRounds < MAX_BEHAVIORAL_ROUNDS) {
     const invFailures = formatVerificationFailures(verification)
+    console.warn(
+      `[behavioralVerification] starting repair round ${behaviorRounds + 1} with ${invFailures.length} invariant failure(s)`,
+    )
     let roundSim: string | null = null
     let firstInRound = true
     let inlineStatic: string[] = []
@@ -403,6 +442,9 @@ export async function runGenerationPipeline(
       trace.pass2GenerationCount++
       const validation = validateSimModule(text)
       const p2b = pass2SnippetForTrace(text)
+      console.log(
+        `[pass2] behavioral/static attempt ${staticAttemptSeq + 1} generated ${p2b.charCount} chars${p2b.truncated ? ' (trace truncated)' : ''}`,
+      )
       pushAttempt(trace, {
         phase: 'staticValidation',
         attempt: ++staticAttemptSeq,
@@ -419,8 +461,12 @@ export async function runGenerationPipeline(
 
       if (validation.valid) {
         roundSim = text
+        console.log(`[staticValidation] attempt ${staticAttemptSeq} passed`)
         break
       }
+      console.warn(
+        `[staticValidation] attempt ${staticAttemptSeq} failed: ${summarizeErrors(validation.errors)}`,
+      )
       inlineStatic = validation.errors
       firstInRound = false
     }
@@ -448,6 +494,14 @@ export async function runGenerationPipeline(
     verification = await verifySimBehavior(simCode, designDoc)
     behaviorRounds++
     trace.behavioralVerificationRetries = behaviorRounds
+    const failedChecks = verification.checks.filter(c => !c.passed).map(c => c.message)
+    if (verification.passed) {
+      console.log(`[behavioralVerification] attempt ${behaviorRounds + 1} passed`)
+    } else {
+      console.warn(
+        `[behavioralVerification] attempt ${behaviorRounds + 1} failed: ${summarizeErrors(failedChecks)}`,
+      )
+    }
 
     const tV = Date.now()
     pushAttempt(trace, {
