@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Praxio — Wireframes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1a1a18; font-family: 'Caveat', cursive; }
+
+  /* Wireframe base tokens */
+  :root {
+    --ink: #1c1c1a;
+    --ink2: #4a4a46;
+    --ink3: #8a8a84;
+    --paper: #f5f4f0;
+    --paper2: #ede9e0;
+    --paper3: #ddd9ce;
+    --accent: oklch(52% 0.09 230);
+    --accent-light: oklch(88% 0.05 230);
+    --accent-dim: oklch(52% 0.09 230 / 0.15);
+    --red: oklch(52% 0.09 20);
+    --red-light: oklch(88% 0.05 20);
+    --border: 1.5px solid #1c1c1a;
+    --border-dash: 1.5px dashed #8a8a84;
+    --r: 4px;
+  }
+
+  .wf-screen {
+    background: var(--paper);
+    font-family: 'Caveat', cursive;
+    color: var(--ink);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .wf-box {
+    border: var(--border);
+    border-radius: var(--r);
+    background: var(--paper2);
+  }
+  .wf-box-dash {
+    border: var(--border-dash);
+    border-radius: var(--r);
+    background: transparent;
+  }
+  .wf-box-accent {
+    border: 2px solid var(--accent);
+    border-radius: var(--r);
+    background: var(--accent-dim);
+  }
+  .wf-box-filled {
+    border: var(--border);
+    border-radius: var(--r);
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .wf-label {
+    font-size: 11px;
+    color: var(--ink3);
+    font-family: 'Caveat', cursive;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .wf-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink2);
+    font-family: 'Caveat', cursive;
+  }
+
+  .wf-annotation {
+    background: #fffbe6;
+    border: 1.5px solid #c8b400;
+    border-radius: 3px;
+    font-size: 11px;
+    padding: 3px 6px;
+    color: #6b5c00;
+    font-family: 'Caveat', cursive;
+    position: absolute;
+    white-space: nowrap;
+  }
+
+  /* Sim placeholder with crosshatch */
+  .sim-placeholder {
+    background-color: #e8e4db;
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 8px,
+      rgba(0,0,0,0.04) 8px,
+      rgba(0,0,0,0.04) 9px
+    );
+    border: var(--border);
+    border-radius: var(--r);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--ink3);
+    font-family: 'Caveat', cursive;
+    font-size: 13px;
+    position: relative;
+  }
+
+  .waveform-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+  }
+  .waveform-bar span {
+    display: inline-block;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+
+  /* Slider component */
+  .wf-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .wf-slider-track {
+    flex: 1;
+    height: 4px;
+    background: var(--paper3);
+    border: 1px solid var(--ink3);
+    border-radius: 2px;
+    position: relative;
+  }
+  .wf-slider-thumb {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: var(--ink);
+    border-radius: 50%;
+    top: -4px;
+  }
+
+  /* Callout arrow */
+  .callout-line {
+    position: absolute;
+    border-top: 1.5px dashed var(--accent);
+    transform-origin: left center;
+  }
+</style>
+</head>
+<body>
+<script type="text/babel">
+const { useState } = React;
+
+// ─── Reusable wireframe primitives ───────────────────────────────────────────
+
+function Box({ x, y, w, h, label, variant='default', style={}, children }) {
+  const cls = {
+    default: 'wf-box',
+    dash: 'wf-box-dash',
+    accent: 'wf-box-accent',
+    filled: 'wf-box-filled',
+    sim: 'sim-placeholder',
+  }[variant] || 'wf-box';
+  return (
+    <div className={cls} style={{ position:'absolute', left:x, top:y, width:w, height:h, ...style }}>
+      {label && <span className="wf-label" style={{position:'absolute',top:-17,left:0}}>{label}</span>}
+      {children}
+    </div>
+  );
+}
+
+function SimBox({ x, y, w, h, label }) {
+  return (
+    <div className="sim-placeholder" style={{ position:'absolute', left:x, top:y, width:w, height:h }}>
+      {label && <span className="wf-label" style={{position:'absolute',top:4,left:6}}>{label}</span>}
+      {/* Simple projectile arc sketch */}
+      <svg width={Math.min(w*0.7,220)} height={Math.min(h*0.5,100)} viewBox="0 0 220 100">
+        <path d="M10,90 Q80,5 160,75 L200,80" fill="none" stroke="#1c1c1a" strokeWidth="2" strokeLinecap="round"/>
+        <circle cx="10" cy="90" r="5" fill="#1c1c1a"/>
+        <line x1="165" y1="75" x2="165" y2="90" stroke="#1c1c1a" strokeWidth="1.5" strokeDasharray="3,2"/>
+        <circle cx="165" cy="90" r="4" fill="none" stroke="#1c1c1a" strokeWidth="1.5"/>
+        <text x="80" y="48" fontFamily="Caveat" fontSize="12" fill="#4a4a46">trajectory arc</text>
+      </svg>
+      <span style={{fontSize:11, color:'#8a8a84', marginTop:-4}}>interactive simulation canvas</span>
+    </div>
+  );
+}
+
+function Waveform({ x, y, speaking=false, style={} }) {
+  const heights = speaking
+    ? [6,14,22,10,18,28,8,20,14,26,10,18,6,22,16]
+    : [4,6,4,6,4,6,4,6,4,6,4,6,4,6,4];
+  return (
+    <div className="waveform-bar" style={{position:'absolute',left:x,top:y,...style}}>
+      {heights.map((h,i) => (
+        <span key={i} style={{height:h}}/>
+      ))}
+    </div>
+  );
+}
+
+function Slider({ x, y, w=120, label, pct=0.45 }) {
+  return (
+    <div style={{position:'absolute',left:x,top:y,width:w}}>
+      <span style={{fontSize:12,fontFamily:'Caveat',color:'#4a4a46',display:'block',marginBottom:2}}>{label}</span>
+      <div className="wf-slider">
+        <div className="wf-slider-track" style={{width:w}}>
+          <div className="wf-slider-thumb" style={{left:`calc(${pct*100}% - 6px)`}}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Annotation({ x, y, text }) {
+  return (
+    <div className="wf-annotation" style={{left:x,top:y}}>
+      ✦ {text}
+    </div>
+  );
+}
+
+function HighlightRing({ x, y, w, h }) {
+  return (
+    <div style={{
+      position:'absolute',left:x,top:y,width:w,height:h,
+      border:'2px solid var(--accent)',borderRadius:4,
+      background:'var(--accent-dim)',pointerEvents:'none',
+    }}>
+      <div style={{
+        position:'absolute',top:-8,right:-8,width:16,height:16,
+        background:'var(--accent)',borderRadius:'50%',
+        display:'flex',alignItems:'center',justifyContent:'center',
+        color:'white',fontSize:10,fontWeight:700
+      }}>!</div>
+    </div>
+  );
+}
+
+function LockIcon({ x, y }) {
+  return (
+    <span style={{position:'absolute',left:x,top:y,fontSize:13,opacity:0.4}} title="locked by AI">🔒</span>
+  );
+}
+
+function Chip({ x, y, label, active=false }) {
+  return (
+    <div style={{
+      position:'absolute',left:x,top:y,
+      background: active ? 'var(--ink)' : 'var(--paper3)',
+      color: active ? 'var(--paper)' : 'var(--ink2)',
+      border:'1.5px solid var(--ink)',
+      borderRadius:20,padding:'2px 10px',
+      fontSize:12,fontFamily:'Caveat',whiteSpace:'nowrap'
+    }}>{label}</div>
+  );
+}
+
+function NavBar({ w, label }) {
+  return (
+    <div className="wf-box" style={{
+      position:'absolute',left:0,top:0,width:w,height:40,
+      display:'flex',alignItems:'center',padding:'0 14px',gap:10,
+      borderRadius:0,borderLeft:'none',borderRight:'none',borderTop:'none',
+      background:'var(--paper)',zIndex:2
+    }}>
+      <div style={{fontWeight:700,fontSize:16,fontFamily:'Caveat',color:'var(--accent)'}}>Praxio</div>
+      <div style={{fontSize:12,color:'var(--ink3)',flex:1}}>{label}</div>
+      <div style={{width:22,height:22,borderRadius:'50%',background:'var(--paper3)',border:'1.5px solid var(--ink3)'}}/>
+    </div>
+  );
+}
+
+// ─── Screen 1: Landing ───────────────────────────────────────────────────────
+function LandingScreen() {
+  return (
+    <div className="wf-screen" style={{width:640,height:420,position:'relative'}}>
+      {/* Center content */}
+      <div style={{
+        position:'absolute',top:60,left:0,right:0,
+        display:'flex',flexDirection:'column',alignItems:'center',gap:0
+      }}>
+        <div style={{fontWeight:700,fontSize:32,color:'var(--accent)',fontFamily:'Caveat'}}>Praxio</div>
+        <div style={{fontSize:14,color:'var(--ink3)',marginTop:2,fontFamily:'Caveat'}}>
+          tell me what isn't clicking
+        </div>
+      </div>
+
+      {/* Input box */}
+      <div style={{position:'absolute',top:160,left:100,right:100}}>
+        <div className="wf-box" style={{
+          height:56,display:'flex',alignItems:'center',gap:10,padding:'0 14px',
+          background:'white',borderWidth:2
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8a8a84" strokeWidth="2">
+            <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+          </svg>
+          <span style={{fontSize:14,color:'var(--ink3)',flex:1,fontFamily:'Caveat'}}>
+            "I don't understand why…"
+          </span>
+          <div style={{
+            background:'var(--ink)',color:'var(--paper)',
+            borderRadius:3,padding:'4px 12px',fontSize:13,fontFamily:'Caveat'
+          }}>Go →</div>
+        </div>
+        <div style={{marginTop:8,textAlign:'center',fontSize:12,color:'var(--ink3)',fontFamily:'Caveat'}}>
+          speak or type · press enter to generate
+        </div>
+      </div>
+
+      {/* Recent / example chips */}
+      <div style={{position:'absolute',top:270,left:0,right:0,display:'flex',justifyContent:'center',gap:8,flexWrap:'wrap'}}>
+        {['projectile motion','derivatives','enzyme kinetics','osmosis'].map(t => (
+          <div key={t} className="wf-box" style={{
+            padding:'4px 12px',borderRadius:20,fontSize:12,
+            fontFamily:'Caveat',color:'var(--ink2)',background:'var(--paper2)'
+          }}>✦ {t}</div>
+        ))}
+      </div>
+
+      <div style={{position:'absolute',bottom:14,left:0,right:0,textAlign:'center',fontSize:11,color:'var(--ink3)',fontFamily:'Caveat'}}>
+        recent concepts — click to reload workspace
+      </div>
+
+      {/* Annotations */}
+      <div className="wf-annotation" style={{position:'absolute',right:16,top:162}}>
+        mic toggle — voice opt-in
+      </div>
+      <div className="wf-annotation" style={{position:'absolute',right:16,top:266}}>
+        recent sessions (localStorage)
+      </div>
+    </div>
+  );
+}
+
+// ─── Screen 2: Generation Loading ────────────────────────────────────────────
+function LoadingScreen() {
+  return (
+    <div className="wf-screen" style={{width:640,height:420,position:'relative'}}>
+      <NavBar w={640} label="generating…" />
+      <div style={{
+        position:'absolute',top:80,left:0,right:0,
+        display:'flex',flexDirection:'column',alignItems:'center',gap:16
+      }}>
+        <div style={{fontWeight:700,fontSize:17,fontFamily:'Caveat',color:'var(--ink)'}}>
+          "why does launch angle affect projectile range?"
+        </div>
+
+        {/* Pipeline steps */}
+        {[
+          { step:'Pass 1', label:'concept → design doc', done:true },
+          { step:'Pass 2', label:'design doc → simulation code', done:true, active:false },
+          { step:'Sandbox', label:'loading iframe runtime…', active:true },
+        ].map((s,i) => (
+          <div key={i} style={{
+            width:360,display:'flex',alignItems:'center',gap:10,
+            padding:'8px 14px',borderRadius:4,
+            background: s.active ? 'var(--accent-dim)' : s.done ? 'transparent' : 'var(--paper2)',
+            border: s.active ? '2px solid var(--accent)' : '1.5px solid var(--paper3)',
+          }}>
+            <div style={{
+              width:20,height:20,borderRadius:'50%',flexShrink:0,
+              background: s.done ? 'var(--ink)' : s.active ? 'var(--accent)' : 'var(--paper3)',
+              border:'1.5px solid var(--ink)',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              fontSize:11,color:'white',fontFamily:'Caveat'
+            }}>{s.done ? '✓' : s.active ? '…' : i+1}</div>
+            <span style={{fontSize:13,fontFamily:'Caveat',color:'var(--ink)',fontWeight:s.active?700:400}}>
+              <b>{s.step}</b> — {s.label}
+            </span>
+          </div>
+        ))}
+
+        {/* Code preview */}
+        <div className="wf-box" style={{
+          width:360,padding:10,marginTop:4,
+          background:'#f0ede4',borderColor:'var(--ink3)',borderStyle:'dashed'
+        }}>
+          <div style={{fontSize:10,color:'var(--ink3)',fontFamily:'Caveat',marginBottom:4}}>
+            generated sim code (preview)
+          </div>
+          {['const cannon = new Cannon(…)', 'setParam("launch_angle", 45)', 'renderTrajectory(state)'].map((l,i) => (
+            <div key={i} style={{fontSize:11,fontFamily:'monospace',color:i===1?'var(--accent)':'var(--ink2)',lineHeight:1.8}}>{l}</div>
+          ))}
+        </div>
+
+        <div style={{fontSize:12,color:'var(--ink3)',fontFamily:'Caveat'}}>
+          ~3 seconds · fallback template ready if generation fails
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Workspace V1: Classic Split ─────────────────────────────────────────────
+function WorkspaceV1() {
+  return (
+    <div className="wf-screen" style={{width:900,height:580,position:'relative'}}>
+      <NavBar w={900} label="projectile motion — workspace #1" />
+
+      {/* Branch sidebar */}
+      <div className="wf-box" style={{
+        position:'absolute',left:0,top:40,width:160,height:540,
+        borderRadius:0,borderTop:'none',borderLeft:'none',background:'var(--paper2)'
+      }}>
+        <div style={{padding:'10px 10px 6px',fontSize:13,fontWeight:700,fontFamily:'Caveat',color:'var(--ink2)',borderBottom:'1px solid var(--paper3)'}}>
+          branches
+        </div>
+        {[
+          {name:'main',active:true,cps:3},
+          {name:'no-gravity',cps:1},
+          {name:'45° focus',cps:2},
+        ].map(b => (
+          <div key={b.name} style={{
+            padding:'7px 10px',
+            background: b.active ? 'var(--accent-dim)' : 'transparent',
+            borderLeft: b.active ? '3px solid var(--accent)' : '3px solid transparent',
+            marginTop:2,cursor:'pointer'
+          }}>
+            <div style={{fontSize:13,fontFamily:'Caveat',fontWeight:b.active?700:400}}>{b.name}</div>
+            <div style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat'}}>{b.cps} checkpoints</div>
+          </div>
+        ))}
+        <div style={{padding:'8px 10px',marginTop:4}}>
+          <div className="wf-box-dash" style={{padding:'4px 8px',textAlign:'center',fontSize:12,fontFamily:'Caveat',color:'var(--ink3)'}}>
+            + new branch
+          </div>
+        </div>
+      </div>
+
+      {/* Main sim area */}
+      <SimBox x={168} y={48} w={476} h={360} label="simulation viewport" />
+
+      {/* Param bar */}
+      <div className="wf-box" style={{
+        position:'absolute',left:168,top:416,width:476,height:64,
+        background:'var(--paper)',display:'flex',alignItems:'center',
+        padding:'0 14px',gap:20,borderTop:'none',borderRadius:'0 0 4px 4px'
+      }}>
+        <Slider x={0} y={-16} w={110} label="Launch Angle" pct={0.45} />
+        <Slider x={130} y={-16} w={110} label="Velocity" pct={0.6} />
+        <div style={{position:'absolute',right:14,display:'flex',alignItems:'center',gap:8}}>
+          <LockIcon x={0} y={-8} />
+          <span style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat',marginLeft:16}}>gravity (locked)</span>
+        </div>
+      </div>
+
+      {/* Tutor panel */}
+      <div className="wf-box" style={{
+        position:'absolute',right:0,top:40,width:248,height:540,
+        borderRadius:0,borderRight:'none',borderTop:'none',
+        display:'flex',flexDirection:'column'
+      }}>
+        <div style={{padding:'8px 12px',borderBottom:'1px solid var(--paper3)',display:'flex',alignItems:'center',gap:8}}>
+          <div style={{fontSize:13,fontWeight:700,fontFamily:'Caveat',flex:1}}>tutor</div>
+          {/* Voice indicator */}
+          <Waveform x={0} y={0} speaking={true} style={{position:'relative',left:'unset',top:'unset'}} />
+        </div>
+
+        {/* Transcript */}
+        <div style={{flex:1,padding:'10px 12px',display:'flex',flexDirection:'column',gap:8,overflowY:'auto'}}>
+          <div style={{
+            background:'var(--paper2)',borderRadius:'4px 4px 4px 0',
+            padding:'8px 10px',fontSize:13,fontFamily:'Caveat',color:'var(--ink)',
+            border:'1px solid var(--paper3)',maxWidth:'90%'
+          }}>
+            Before you calculate anything — if you increase the angle from 30→60°, what do you predict happens to range?
+          </div>
+          <div style={{
+            background:'var(--accent-dim)',borderRadius:'4px 4px 0 4px',
+            padding:'8px 10px',fontSize:13,fontFamily:'Caveat',color:'var(--ink)',
+            border:'1px solid var(--accent)',maxWidth:'90%',alignSelf:'flex-end'
+          }}>
+            …it goes further? maybe?
+          </div>
+          <div style={{
+            background:'var(--paper2)',borderRadius:'4px 4px 4px 0',
+            padding:'8px 10px',fontSize:13,fontFamily:'Caveat',color:'var(--ink)',
+            border:'1px solid var(--paper3)',maxWidth:'90%'
+          }}>
+            Try it — drag the slider and tell me what you see.
+          </div>
+        </div>
+
+        {/* Voice input bar */}
+        <div style={{padding:'8px 12px',borderTop:'1px solid var(--paper3)',display:'flex',alignItems:'center',gap:8}}>
+          <div className="wf-box" style={{flex:1,height:32,display:'flex',alignItems:'center',padding:'0 8px'}}>
+            <span style={{fontSize:12,color:'var(--ink3)',fontFamily:'Caveat'}}>speak or type…</span>
+          </div>
+          <div style={{
+            width:32,height:32,borderRadius:'50%',background:'var(--ink)',
+            display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',border:'none'
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="none">
+              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="white" strokeWidth="2"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Annotation callouts */}
+      <HighlightRing x={290} y={50} w={100} h={22} />
+      <Annotation x={200} y={420} text={'AI called highlight("launch_angle")'} />
+
+      {/* Label */}
+      <div style={{position:'absolute',left:168,bottom:6,fontSize:11,color:'var(--ink3)',fontFamily:'Caveat'}}>
+        V1 — classic split: sim + branch sidebar + tutor panel
+      </div>
+    </div>
+  );
+}
+
+// ─── Workspace V2: Immersive (bottom waveform) ────────────────────────────────
+function WorkspaceV2() {
+  return (
+    <div className="wf-screen" style={{width:900,height:580,position:'relative'}}>
+      {/* Minimal top bar */}
+      <div style={{
+        position:'absolute',left:0,top:0,right:0,height:36,
+        background:'rgba(245,244,240,0.9)',borderBottom:'1px solid var(--paper3)',
+        display:'flex',alignItems:'center',padding:'0 14px',gap:10,zIndex:3
+      }}>
+        <div style={{fontWeight:700,fontSize:15,color:'var(--accent)',fontFamily:'Caveat'}}>Praxio</div>
+        <div style={{fontSize:12,color:'var(--ink3)',flex:1,fontFamily:'Caveat'}}>projectile motion</div>
+        <div style={{fontSize:12,color:'var(--ink3)',fontFamily:'Caveat'}}>branches ▾</div>
+        <div style={{width:20,height:20,borderRadius:'50%',background:'var(--paper3)',border:'1.5px solid var(--ink3)'}}/>
+      </div>
+
+      {/* Full-bleed sim */}
+      <SimBox x={0} y={36} w={900} h={420} label="simulation viewport — full bleed" />
+
+      {/* Floating param pills over sim */}
+      <div style={{position:'absolute',left:16,top:52,display:'flex',flexDirection:'column',gap:6,zIndex:4}}>
+        <div className="wf-box" style={{background:'rgba(245,244,240,0.92)',padding:'6px 12px',borderRadius:20,display:'flex',gap:8,alignItems:'center'}}>
+          <span style={{fontSize:12,fontFamily:'Caveat',color:'var(--accent)',fontWeight:700}}>Launch Angle</span>
+          <div className="wf-slider-track" style={{width:80}}>
+            <div className="wf-slider-thumb" style={{left:'calc(45% - 6px)'}}/>
+          </div>
+          <span style={{fontSize:12,fontFamily:'Caveat',color:'var(--ink2)'}}>45°</span>
+        </div>
+        <div className="wf-box" style={{background:'rgba(245,244,240,0.92)',padding:'6px 12px',borderRadius:20,display:'flex',gap:8,alignItems:'center'}}>
+          <span style={{fontSize:12,fontFamily:'Caveat',color:'var(--ink2)'}}>Velocity</span>
+          <div className="wf-slider-track" style={{width:80}}>
+            <div className="wf-slider-thumb" style={{left:'calc(60% - 6px)'}}/>
+          </div>
+          <span style={{fontSize:12,fontFamily:'Caveat',color:'var(--ink2)'}}>30 m/s</span>
+        </div>
+        <div style={{
+          background:'rgba(200,200,195,0.7)',padding:'4px 12px',borderRadius:20,
+          fontSize:12,fontFamily:'Caveat',color:'var(--ink3)',display:'flex',gap:6,alignItems:'center'
+        }}>
+          <span style={{fontSize:13}}>🔒</span> Gravity — locked
+        </div>
+      </div>
+
+      {/* Annotation pin on arc */}
+      <div style={{position:'absolute',left:460,top:140,zIndex:4}}>
+        <div style={{
+          background:'rgba(255,251,230,0.95)',border:'1.5px solid #c8b400',borderRadius:4,
+          padding:'4px 8px',fontSize:12,fontFamily:'Caveat',color:'#6b5c00',whiteSpace:'nowrap'
+        }}>What are the velocity components here?</div>
+        <div style={{width:1,height:18,background:'#c8b400',marginLeft:16}}/>
+        <div style={{width:8,height:8,borderRadius:'50%',background:'#c8b400',marginLeft:12}}/>
+      </div>
+
+      {/* Bottom waveform / tutor strip */}
+      <div style={{
+        position:'absolute',left:0,bottom:0,right:0,height:124,
+        background:'var(--paper)',borderTop:'2px solid var(--ink)',zIndex:3,
+        display:'flex',alignItems:'stretch',
+      }}>
+        {/* Waveform + status */}
+        <div style={{
+          width:200,borderRight:'1.5px solid var(--paper3)',
+          display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',gap:4,
+          padding:'0 16px'
+        }}>
+          <div style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat'}}>tutor speaking</div>
+          <div style={{display:'flex',gap:2,alignItems:'center',height:32}}>
+            {[8,18,28,14,24,32,10,22,16,28,12,20,8,24,18].map((h,i)=>(
+              <span key={i} style={{display:'inline-block',width:3,height:h,background:'var(--accent)',borderRadius:2}}/>
+            ))}
+          </div>
+          <div style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat'}}>via ElevenLabs TTS</div>
+        </div>
+
+        {/* Last tutor question */}
+        <div style={{flex:1,padding:'12px 16px',display:'flex',flexDirection:'column',justifyContent:'center',gap:6}}>
+          <div style={{fontSize:14,fontFamily:'Caveat',color:'var(--ink)',lineHeight:1.4}}>
+            "What's happening to the <span style={{color:'var(--accent)',fontWeight:700}}>horizontal component</span> as you tilt further up?"
+          </div>
+          <div style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat'}}>
+            responding to: param_changed launch_angle 30→60 · range dropped to 34.3m
+          </div>
+        </div>
+
+        {/* Student input */}
+        <div style={{width:180,borderLeft:'1.5px solid var(--paper3)',display:'flex',flexDirection:'column',justifyContent:'center',padding:'0 14px',gap:8}}>
+          <div className="wf-box" style={{height:32,display:'flex',alignItems:'center',padding:'0 8px',background:'white'}}>
+            <span style={{fontSize:12,color:'var(--ink3)',fontFamily:'Caveat'}}>type reply…</span>
+          </div>
+          <div style={{display:'flex',gap:6}}>
+            <div className="wf-box" style={{
+              flex:1,height:30,display:'flex',alignItems:'center',justifyContent:'center',
+              fontSize:11,fontFamily:'Caveat',cursor:'pointer'
+            }}>🎙 speak</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{position:'absolute',left:8,bottom:128,fontSize:11,color:'var(--ink)',fontFamily:'Caveat',background:'rgba(245,244,240,0.8)',padding:'2px 6px',borderRadius:2}}>
+        V2 — immersive: full-bleed sim, floating params, bottom tutor strip
+      </div>
+    </div>
+  );
+}
+
+// ─── Workspace V3: Floating Tutor Pill ───────────────────────────────────────
+function WorkspaceV3() {
+  return (
+    <div className="wf-screen" style={{width:900,height:580,position:'relative'}}>
+      {/* Minimal top bar */}
+      <div style={{
+        position:'absolute',left:0,top:0,right:0,height:36,
+        background:'rgba(245,244,240,0.9)',borderBottom:'1px solid var(--paper3)',
+        display:'flex',alignItems:'center',padding:'0 14px',gap:10,zIndex:3
+      }}>
+        <div style={{fontWeight:700,fontSize:15,color:'var(--accent)',fontFamily:'Caveat'}}>Praxio</div>
+        <div style={{fontSize:12,color:'var(--ink3)',flex:1,fontFamily:'Caveat'}}>projectile motion</div>
+        <div style={{fontSize:11,fontFamily:'Caveat',color:'var(--ink3)',background:'var(--paper2)',padding:'2px 8px',borderRadius:10,border:'1px solid var(--paper3)'}}>
+          main · checkpoint 3/3
+        </div>
+      </div>
+
+      {/* Full sim */}
+      <SimBox x={0} y={36} w={900} h={544} label="simulation viewport" />
+
+      {/* Bottom param bar */}
+      <div style={{
+        position:'absolute',left:0,bottom:0,right:0,height:48,
+        background:'rgba(245,244,240,0.95)',borderTop:'1.5px solid var(--ink3)',
+        display:'flex',alignItems:'center',padding:'0 16px',gap:24,zIndex:3
+      }}>
+        {[{label:'Launch Angle',pct:0.45,val:'45°',accent:true},{label:'Velocity',pct:0.6,val:'30 m/s'},{label:'Gravity',pct:0.5,val:'9.8',locked:true}].map(s => (
+          <div key={s.label} style={{display:'flex',alignItems:'center',gap:8,opacity:s.locked?0.35:1}}>
+            {s.locked && <span style={{fontSize:13}}>🔒</span>}
+            <span style={{fontSize:12,fontFamily:'Caveat',color:s.accent?'var(--accent)':'var(--ink2)',fontWeight:s.accent?700:400}}>{s.label}</span>
+            <div className="wf-slider-track" style={{width:70,opacity:s.locked?0.5:1}}>
+              <div className="wf-slider-thumb" style={{left:`calc(${s.pct*100}% - 6px)`,background:s.accent?'var(--accent)':'var(--ink)'}}/>
+            </div>
+            <span style={{fontSize:12,fontFamily:'Caveat',color:'var(--ink2)'}}>{s.val}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Floating tutor pill — bottom right corner */}
+      <div style={{
+        position:'absolute',right:20,bottom:60,zIndex:5,
+        display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6,
+        maxWidth:280
+      }}>
+        {/* Expanded speech bubble */}
+        <div style={{
+          background:'rgba(245,244,240,0.97)',border:'2px solid var(--ink)',borderRadius:'12px 12px 2px 12px',
+          padding:'10px 14px',fontSize:13,fontFamily:'Caveat',color:'var(--ink)',
+          boxShadow:'3px 3px 0 var(--ink)',lineHeight:1.4,maxWidth:260
+        }}>
+          "What's happening to the horizontal component as you tilt further up?"
+        </div>
+
+        {/* Pill with waveform */}
+        <div style={{
+          background:'var(--ink)',borderRadius:24,
+          padding:'6px 16px 6px 12px',
+          display:'flex',alignItems:'center',gap:8,
+          boxShadow:'2px 2px 0 rgba(0,0,0,0.3)'
+        }}>
+          <div style={{fontSize:11,color:'rgba(255,255,255,0.6)',fontFamily:'Caveat'}}>tutor</div>
+          <div style={{display:'flex',gap:2,alignItems:'center',height:20}}>
+            {[6,14,20,10,18,26,8,18,12].map((h,i)=>(
+              <span key={i} style={{display:'inline-block',width:2.5,height:h,background:'var(--accent)',borderRadius:2}}/>
+            ))}
+          </div>
+          <div style={{width:8,height:8,borderRadius:'50%',background:'#5ce65c'}}/>
+        </div>
+      </div>
+
+      {/* Annotation on arc peak */}
+      <div style={{position:'absolute',left:420,top:120,zIndex:4}}>
+        <div style={{
+          background:'rgba(255,251,230,0.96)',border:'1.5px solid #c8b400',borderRadius:4,
+          padding:'5px 10px',fontSize:12,fontFamily:'Caveat',color:'#6b5c00',
+          boxShadow:'2px 2px 0 rgba(200,180,0,0.3)'
+        }}>Peak range. Why 45°?</div>
+        <div style={{width:1,height:16,background:'#c8b400',marginLeft:10}}/>
+        <div style={{width:8,height:8,borderRadius:'50%',background:'#c8b400',marginLeft:6}}/>
+      </div>
+
+      {/* Highlight ring on slider */}
+      <div style={{
+        position:'absolute',left:12,bottom:38,width:158,height:32,
+        border:'2px solid var(--accent)',borderRadius:4,
+        background:'var(--accent-dim)',zIndex:4,pointerEvents:'none'
+      }}/>
+
+      <div style={{position:'absolute',left:8,bottom:92,fontSize:11,color:'var(--ink)',fontFamily:'Caveat',background:'rgba(245,244,240,0.8)',padding:'2px 6px',borderRadius:2}}>
+        V3 — floating tutor pill: max sim space, minimal chrome
+      </div>
+    </div>
+  );
+}
+
+// ─── Voice States Detail ──────────────────────────────────────────────────────
+function VoiceStates() {
+  const states = [
+    { label:'idle', desc:'mic off / keyboard mode', wh:[4,6,4,6,4,6,4], color:'var(--ink3)', dot:'#ccc' },
+    { label:'listening', desc:'student speaking (STT active)', wh:[10,20,30,18,24,14,22,8,16], color:'#e06020', dot:'#e06020' },
+    { label:'tutor speaking', desc:'ElevenLabs TTS playing', wh:[8,18,28,14,24,32,10,22,16,28], color:'var(--accent)', dot:'#5ce65c' },
+    { label:'processing', desc:'Gemma 4 thinking mode…', wh:[5,5,5,5,5,5,5,5,5], color:'var(--ink3)', dot:'#c8b400' },
+  ];
+  return (
+    <div className="wf-screen" style={{width:700,height:160,position:'relative',display:'flex',gap:0}}>
+      {states.map((s,i) => (
+        <div key={i} style={{
+          flex:1,padding:'16px 14px',
+          borderRight: i<states.length-1 ? '1px solid var(--paper3)' : 'none',
+          display:'flex',flexDirection:'column',alignItems:'center',gap:8
+        }}>
+          <div style={{fontSize:13,fontWeight:700,fontFamily:'Caveat',color:'var(--ink)'}}>{s.label}</div>
+          <div style={{display:'flex',gap:2.5,alignItems:'center',height:36}}>
+            {s.wh.map((h,j)=>(
+              <span key={j} style={{display:'inline-block',width:3,height:h,background:s.color,borderRadius:2}}/>
+            ))}
+            <span style={{width:8,height:8,borderRadius:'50%',background:s.dot,display:'inline-block',marginLeft:6}}/>
+          </div>
+          <div style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat',textAlign:'center',lineHeight:1.3}}>{s.desc}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Annotation Detail ────────────────────────────────────────────────────────
+function AnnotationDetail() {
+  return (
+    <div className="wf-screen" style={{width:560,height:320,position:'relative'}}>
+      <div style={{position:'absolute',top:10,left:10,fontSize:13,fontWeight:700,fontFamily:'Caveat',color:'var(--ink2)'}}>
+        AI annotation system — function calls → visual overlays
+      </div>
+
+      {/* Mini sim */}
+      <div className="sim-placeholder" style={{position:'absolute',left:40,top:40,width:300,height:200}}>
+        <svg width="270" height="160" viewBox="0 0 270 160">
+          <path d="M10,140 Q90,20 190,120 L240,130" fill="none" stroke="#1c1c1a" strokeWidth="2"/>
+          <circle cx="10" cy="140" r="6" fill="#1c1c1a"/>
+          <circle cx="240" cy="130" r="5" fill="none" stroke="#1c1c1a" strokeWidth="1.5"/>
+        </svg>
+      </div>
+
+      {/* highlight() */}
+      <div style={{
+        position:'absolute',left:60,top:58,width:72,height:22,
+        border:'2px solid var(--accent)',background:'var(--accent-dim)',borderRadius:3
+      }}/>
+      <div className="wf-annotation" style={{position:'absolute',left:6,top:56}}>
+        highlight()
+      </div>
+
+      {/* lock() */}
+      <div style={{
+        position:'absolute',left:148,top:58,width:80,height:22,
+        background:'rgba(0,0,0,0.08)',borderRadius:3,
+        display:'flex',alignItems:'center',justifyContent:'center'
+      }}>
+        <span style={{fontSize:12,fontFamily:'Caveat',color:'var(--ink3)'}}>🔒 locked</span>
+      </div>
+
+      {/* add_annotation() pin */}
+      <div style={{position:'absolute',left:215,top:92}}>
+        <div style={{
+          background:'rgba(255,251,230,0.97)',border:'1.5px solid #c8b400',borderRadius:4,
+          padding:'3px 7px',fontSize:11,fontFamily:'Caveat',color:'#6b5c00',whiteSpace:'nowrap'
+        }}>velocity components?</div>
+        <div style={{width:1,height:14,background:'#c8b400',marginLeft:8}}/>
+        <div style={{width:7,height:7,borderRadius:'50%',background:'#c8b400',marginLeft:4}}/>
+      </div>
+
+      {/* Legend */}
+      <div style={{position:'absolute',right:10,top:40,display:'flex',flexDirection:'column',gap:8}}>
+        {[
+          {color:'var(--accent)',bg:'var(--accent-dim)',label:'highlight(id)'},
+          {color:'var(--ink3)',bg:'rgba(0,0,0,0.08)',label:'lock(id)'},
+          {color:'#c8b400',bg:'rgba(255,251,230,0.97)',label:'add_annotation()'},
+        ].map(l => (
+          <div key={l.label} style={{display:'flex',alignItems:'center',gap:6}}>
+            <div style={{width:14,height:10,border:`1.5px solid ${l.color}`,background:l.bg,borderRadius:2}}/>
+            <span style={{fontSize:11,fontFamily:'Caveat',color:'var(--ink2)'}}>{l.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        position:'absolute',bottom:10,left:40,right:10,
+        fontSize:11,color:'var(--ink3)',fontFamily:'Caveat',
+        borderTop:'1px dashed var(--paper3)',paddingTop:6
+      }}>
+        AI drives these via native function calls (Gemma 4) · no text parsing · postMessage bridge to iframe sandbox
+      </div>
+    </div>
+  );
+}
+
+// ─── Branch Sidebar Detail ────────────────────────────────────────────────────
+function BranchDetail() {
+  return (
+    <div className="wf-screen" style={{width:220,height:460,position:'relative'}}>
+      <div style={{padding:'10px 12px 6px',fontSize:14,fontWeight:700,fontFamily:'Caveat',borderBottom:'1.5px solid var(--paper3)'}}>
+        branches
+      </div>
+
+      {[
+        { name:'main', checkpoints:[
+          {label:'initial scene',active:false},
+          {label:'gravity locked',active:false},
+          {label:'student at 45°',active:true},
+        ]},
+        { name:'no-gravity', checkpoints:[{label:'g=0 perturbation',active:false}]},
+      ].map((branch,bi) => (
+        <div key={bi} style={{marginTop:6}}>
+          <div style={{
+            padding:'5px 12px',
+            background: bi===0 ? 'var(--accent-dim)' : 'transparent',
+            borderLeft: bi===0 ? '3px solid var(--accent)' : '3px solid transparent',
+            fontSize:13,fontWeight:700,fontFamily:'Caveat',display:'flex',alignItems:'center',gap:6
+          }}>
+            <span>{branch.name}</span>
+            {bi===0 && <span style={{fontSize:10,background:'var(--accent)',color:'white',borderRadius:10,padding:'1px 6px'}}>active</span>}
+          </div>
+          {branch.checkpoints.map((cp,ci) => (
+            <div key={ci} style={{
+              padding:'4px 12px 4px 24px',
+              background: cp.active ? '#fffbe6' : 'transparent',
+              borderLeft: cp.active ? '3px solid #c8b400' : '3px solid transparent',
+              display:'flex',alignItems:'center',gap:6,cursor:'pointer',
+              borderBottom:'1px solid var(--paper3)'
+            }}>
+              <div style={{
+                width:8,height:8,borderRadius:'50%',flexShrink:0,
+                background: cp.active ? '#c8b400' : 'var(--paper3)',
+                border:'1.5px solid var(--ink3)'
+              }}/>
+              <span style={{fontSize:12,fontFamily:'Caveat',color: cp.active ? '#6b5c00' : 'var(--ink2)'}}>{cp.label}</span>
+              {cp.active && <span style={{fontSize:10,color:'#c8b400',marginLeft:'auto'}}>now</span>}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <div style={{padding:'10px 12px',marginTop:4,borderTop:'1.5px dashed var(--paper3)'}}>
+        <div style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat',marginBottom:6}}>checkpoint() / restore(id)</div>
+        <div className="wf-box-dash" style={{
+          padding:'5px 8px',textAlign:'center',fontSize:12,fontFamily:'Caveat',color:'var(--ink3)',cursor:'pointer'
+        }}>
+          + new branch from here
+        </div>
+      </div>
+
+      <div style={{padding:'8px 12px',borderTop:'1.5px solid var(--paper3)'}}>
+        <div style={{fontSize:11,color:'var(--ink3)',fontFamily:'Caveat',marginBottom:4}}>workspaces</div>
+        {['projectile motion','derivatives','osmosis'].map((w,i) => (
+          <div key={i} style={{
+            padding:'3px 0',fontSize:12,fontFamily:'Caveat',color: i===0 ? 'var(--accent)' : 'var(--ink3)',
+            borderBottom:'1px dotted var(--paper3)'
+          }}>
+            {i===0 ? '▸ ' : '  '}{w}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Canvas ──────────────────────────────────────────────────────────────
+function App() {
+  return (
+    <DesignCanvas title="Praxio — Wireframes">
+      <DCSection id="entry" title="Entry Screens">
+        <DCArtboard id="landing" label="Landing / Concept Input" width={640} height={420}>
+          <LandingScreen />
+        </DCArtboard>
+        <DCArtboard id="loading" label="Generation Loading (2-pass)" width={640} height={420}>
+          <LoadingScreen />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="workspace" title="Workspace Layouts — 3 Variations">
+        <DCArtboard id="ws1" label="V1 — Classic Split Panel" width={900} height={580}>
+          <WorkspaceV1 />
+        </DCArtboard>
+        <DCArtboard id="ws2" label="V2 — Immersive + Bottom Tutor Strip" width={900} height={580}>
+          <WorkspaceV2 />
+        </DCArtboard>
+        <DCArtboard id="ws3" label="V3 — Floating Tutor Pill" width={900} height={580}>
+          <WorkspaceV3 />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="details" title="Component Details">
+        <DCArtboard id="voice" label="Voice / Tutor States" width={700} height={160}>
+          <VoiceStates />
+        </DCArtboard>
+        <DCArtboard id="annotations" label="Annotation Overlay System" width={560} height={320}>
+          <AnnotationDetail />
+        </DCArtboard>
+        <DCArtboard id="branches" label="Branch Sidebar + Checkpoints" width={220} height={460}>
+          <BranchDetail />
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<div id="root"></div>
+</body>
+</html>

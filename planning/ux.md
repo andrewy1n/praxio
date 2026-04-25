@@ -1,0 +1,264 @@
+# UX — Praxio
+
+**Design samples are in `planning/design/`. They show visual direction only — not final. Do not derive color, spacing, or typography decisions from them; only derive page structure, component presence, and layout zones.**
+
+---
+
+## Pages
+
+### 1. Landing / Concept Entry
+
+**Route:** `/`
+
+The student's entry point. They arrive here every time — there is no persistent home feed.
+
+**Purpose:** Capture the concept the student is stuck on and kick off generation.
+
+**Key user actions:**
+- Type a concept into a text input
+- Speak a concept via microphone (ElevenLabs STT — opt-in via mic toggle)
+- Submit to trigger `/api/generate`
+
+**States:**
+- **Idle** — input empty, mic toggle visible
+- **Recording** — mic active, live transcription visible in input
+- **Error** — generation failed (show retry, no crash)
+
+**Navigation out:** On submit → Generation Loading page
+
+---
+
+### 2. Generation Loading
+
+**Route:** `/` (same route, transitional screen — no URL change) or a transient overlay
+
+A full-screen centered page shown immediately after the student submits a concept. Stays visible while Pass 1, Pass 2, and behavioral verification run (~10–25s total). Replaces the Landing input; student cannot interact.
+
+**Purpose:** Show meaningful progress so the wait feels productive rather than broken.
+
+**Layout:** Centered column — logo + concept quote → four-step progress list → status line at bottom.
+
+**Progress steps (shown sequentially as each completes):**
+1. **Pass 1 — concept → design doc** — step activates immediately on submit; shows a code/JSON snippet when active or done
+2. **Pass 2 — design doc → sim module** — activates when Pass 1 returns; shows generated sim code snippet
+3. **Verify — behavioral invariants** — activates after static code validation; shows pass/fail checks for probe cases
+4. **Sandbox — iframe runtime loading** — activates when verification passes; shows postMessage bridge status
+
+Each step has three visual sub-states:
+- **Pending** — dimmed, no icon
+- **Active** — pulsing dot icon, label in accent color, code snippet fades in below
+- **Done** — filled checkmark icon, label in full text color, snippet remains visible
+
+**Status line:** Small monospaced text below the step list — `generating simulation via Gemma 4 31B-it…` during generation, `checking model behavior…` during verification, `launching workspace…` once all steps complete.
+
+**States:**
+- **Generating** — steps progress 1 → 2 → 3 → 4 as API calls return and verification passes
+- **Error** — generation failed; return to Landing with error message (error handling TBD — see GAPS.md)
+
+**Navigation out:** On all steps complete → Workspace page (new workspace ID)
+
+---
+
+### 3. Workspace
+
+**Route:** `/workspace/[workspaceId]`
+
+The main session view. Vertically stacked layout — simulation fills the screen, tutor lives in a bottom strip. Student spends the entire session here.
+
+**Purpose:** Host the interactive simulation and the Socratic tutor loop.
+
+**Key user actions:**
+- Manipulate simulation parameters (sliders in floating ParamPanel)
+- Speak or type responses to the tutor (TutorStrip at bottom)
+- Toggle microphone (STT on/off) via speak button in TutorStrip
+- View current branch and checkpoint count in TopBar
+
+**Layout zones (top to bottom):**
+- **TopBar** (44px) — logo, concept title, branch/checkpoint pill, user avatar
+- **SimArea** (flex: 1, fills remaining height) — simulation iframe covering the full area; `ParamPanel` floats over it at top-left; agent annotation overlays rendered on top
+- **TutorStrip** (80px) — three horizontal sections: waveform/status (left, 180px) | tutor question (center, flex) | student input + speak button (right, 200px)
+
+**States:**
+- **Loading sim** — iframe loading, no controls yet
+- **Sim ready / staging** — tutor applies initial `lock()` / `highlight()` before first question
+- **Active tutor loop** — normal interaction, tutor questions stream
+- **Tutor speaking** — TTS playing; waveform animates, status reads `● tutor speaking`
+- **Student input** — text field focused or mic active; status reads `● listening`
+- **Idle** — no audio activity; waveform flat, status reads `○ idle`
+- **Sim idle (episodic)** — sim loaded but not launched; SimControls shows Launch button; sliders live
+- **Sim active (episodic)** — flight/run in progress; SimControls shows Pause button
+- **Sim done (episodic)** — terminal event fired (ball landed, etc.); SimControls shows Reset button; sliders live for next run
+- **Sim paused** — SimControls shows Play icon; waveform stays flat regardless of tutor state
+- **Checkpoint restored** — sim rewound, conversation history context updated
+
+**Navigation out:** Back to Landing (new concept). No other pages.
+
+---
+
+## UX Flow
+
+```
+Landing
+  │
+  ├─ [type or speak concept] → submit
+  │
+  ▼
+Generation Loading (full-screen)
+  │
+  ├─ Step 1: Pass 1 running → design doc returned
+  ├─ Step 2: Pass 2 running → sim code returned
+  ├─ Step 3: behavioral verification running → invariant report returned
+  ├─ Step 4: Sandbox / iframe bridge initializing
+  │
+  ├─ failure → return to Landing with error
+  │
+  ▼
+Workspace — TopBar + SimArea + TutorStrip
+  │
+  ▼
+Sim loads in iframe (SimArea fills screen)
+  │
+  ▼
+Tutor applies initial staging (lock / highlight) — no speech yet
+  │
+  ▼
+Tutor streams opening Socratic question via TTS
+TutorStrip waveform animates, status → "● tutor speaking"
+  │
+  ▼
+┌─────────────────────────────────────┐
+│         Active tutor loop           │
+│                                     │
+│  Student manipulates sim            │
+│    → ParamPanel slider change       │
+│    → iframe emits PARAM_CHANGED     │
+│    → tutor Call 1 (tools/staging)   │
+│    → tutor Call 2 (streams speech)  │
+│    → TTS plays, waveform animates   │
+│                                     │
+│  Student speaks / types response    │
+│    → TutorStrip input / speak btn   │
+│    → STT transcribes (voice path)   │
+│    → appended to conversation       │
+│    → tutor Call 1 → Call 2          │
+│                                     │
+│  Branch/checkpoint shown in TopBar  │
+└─────────────────────────────────────┘
+  │
+  ▼
+Student understands concept → session ends naturally
+  │
+  ▼
+(Optional) Back to Landing for new concept
+```
+
+---
+
+## Component Tree
+
+### Landing
+
+```
+<LandingPage>
+  <ConceptInput>
+    <TextInput />               ← controlled, submits on Enter or button
+    <MicToggle />               ← ElevenLabs STT on/off
+    <SubmitButton />
+    <LiveTranscript />          ← shown only while mic active
+  </ConceptInput>
+  <ErrorMessage />              ← shown on generation failure (returned from LoadingPage)
+</LandingPage>
+```
+
+### Generation Loading
+
+```
+<GenerationLoadingPage concept={concept}>
+  <LogoMark />
+  <ConceptQuote />              ← the submitted concept shown in quotes
+  <StepList>
+    <StepItem                   ← Pass 1 — concept → design doc
+      state="pending|active|done"
+      label="Pass 1 — concept → design doc"
+      snippet={jsonPreview} />
+    <StepItem                   ← Pass 2 — design doc → sim module
+      state="pending|active|done"
+      label="Pass 2 — design doc → sim module"
+      snippet={codePreview} />
+    <StepItem                   ← Verify — behavioral invariants
+      state="pending|active|done|failed"
+      label="Verify — behavioral invariants"
+      snippet={verificationPreview} />
+    <StepItem                   ← Sandbox iframe runtime loading
+      state="pending|active|done"
+      label="Sandbox — iframe runtime loading"
+      snippet={bridgeStatus} />
+  </StepList>
+  <StatusLine />                ← "generating simulation via Gemma 4 31B-it…" / "checking model behavior…" / "launching workspace…"
+</GenerationLoadingPage>
+```
+
+### Workspace
+
+```
+<WorkspacePage>
+  <TopBar>
+    <LogoMark />
+    <ConceptTitle />             ← concept string, truncated with ellipsis
+    <BranchPill />               ← "◆ main · cp 2/3" — branch name + checkpoint count
+    <UserAvatar />
+  </TopBar>
+
+  <SimArea>                      ← flex: 1, position: relative, overflow: hidden
+    <SimIframe />                ← sandboxed iframe, postMessage bridge, fills SimArea
+    <ParamPanel>                 ← absolute positioned, top-left over iframe
+      <SliderControl />          ← built dynamically from MANIFEST, one per param
+    </ParamPanel>
+    <AgentOverlay />             ← highlight / annotation overlays rendered on top of iframe
+    <SimControls />              ← absolute positioned, bottom-right over iframe; renders contextually based on manifest flags and current sim phase (see below)
+  </SimArea>
+
+  {/* SimControls — button set rendered contextually, bottom-right of SimArea.
+      Never draws inside the sim canvas. All four states are mutually exclusive.
+
+      manifest.episodic && phase === 'idle'             → Launch button (blue)
+      manifest.animates && phase === 'active' && !paused → Pause button
+      manifest.animates && phase === 'active' && paused  → Play button
+      manifest.episodic && phase === 'done'             → Reset button (gray)
+
+      For continuous sims (episodic=false): only Pause/Play, no Launch/Reset.
+      For static sims (animates=false):     SimControls is not rendered at all.
+      phase is tracked in parent state, updated from SIM_PHASE postMessages. */}
+
+  <TutorStrip>                   ← fixed 80px height, border-top, three horizontal sections
+    <WaveformSection>            ← 180px wide, left
+      <StatusLabel />            ← "● tutor speaking" / "● listening" / "○ idle"
+      <Waveform />               ← animated bars, color changes for listening vs speaking
+    </WaveformSection>
+    <QuestionSection>            ← flex: 1, center
+      <TutorQuestion />          ← current tutor question text
+      <SimEventHint />           ← "↳ sim event that triggered this" (optional, TBD)
+    </QuestionSection>
+    <StudentInputSection>        ← 200px wide, right
+      <TextInput />              ← "type reply…"
+      <SpeakButton />            ← triggers STT mic
+    </StudentInputSection>
+  </TutorStrip>
+</WorkspacePage>
+```
+
+---
+
+## Open UX Questions
+
+- **SimEventHint in TutorStrip:** Whether to surface the triggering sim event below the tutor question (the `↳` line) is undecided. It is sent to the tutor but may not need to be shown to the student.
+- **Error recovery in Workspace:** If a tutor call fails mid-session, what does the student see? Retry button? Silent retry? Not specified.
+- **Generation error recovery:** If Pass 1 or Pass 2 fails, the LoadingPage should return to Landing with an error message, but the exact error UX (toast, inline, full error state) is not designed.
+- **Branch/checkpoint UI:** The Hi-Fi shows branch and checkpoint count in the TopBar pill only. The full branch-switching and checkpoint-restore UX (previously a sidebar) has no Hi-Fi representation yet — how students create branches or restore checkpoints is unresolved.
+- **LoadingPage route:** Whether the generation loading screen lives at the same route as Landing (transitional overlay) or a dedicated route (e.g. `/generating`) is TBD in implementation.
+
+## Resolved
+
+- **Params panel placement:** ~~overlaid on top~~ — `ParamPanel` floats over the sim iframe at top-left (absolute positioned). Resolved by Hi-Fi.
+- **Generation progress:** ~~single spinner~~ — three explicit step rows (Pass 1, Pass 2, Sandbox) with active/done states and code snippets. Resolved by Hi-Fi.
+- **Workspace layout:** ~~three-panel~~ — vertical stack: TopBar + SimArea (full-width, full-height) + TutorStrip (80px bottom bar). Resolved by Hi-Fi.

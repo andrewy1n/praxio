@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Praxio — Workspace Variants</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#111;font-family:'JetBrains Mono',monospace;}
+input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;width:100%;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:0;height:0;}
+input[type=range]::-webkit-slider-runnable-track{background:transparent;height:1px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Monochrome palette ────────────────────────────────────────────────────────
+const M = {
+  bg:   '#1a1a1a',
+  bg2:  '#1e1e1e',
+  bg3:  '#222',
+  bdr:  '#2e2e2e',
+  bdr2: '#3a3a3a',
+  txt:  '#d8d5cf',
+  txt2: '#707070',
+  txt3: '#404040',
+  font: '"JetBrains Mono", monospace',
+};
+
+// ── Themes (gradient only) ────────────────────────────────────────────────────
+const THEMES = [
+  {
+    id: 'coral-violet',
+    label: 'Coral → Violet',
+    gradient: 'linear-gradient(135deg, oklch(70% 0.19 28), oklch(70% 0.17 295))',
+    gradientSm: 'linear-gradient(135deg, oklch(70% 0.13 28), oklch(70% 0.13 295))',
+    note: 'warm · approachable · movement',
+  },
+  {
+    id: 'amber-warm',
+    label: 'Amber → Warm White',
+    gradient: 'linear-gradient(135deg, oklch(72% 0.16 70), oklch(85% 0.04 80))',
+    gradientSm: 'linear-gradient(135deg, oklch(72% 0.12 70), oklch(85% 0.03 80))',
+    note: 'filament · precision with warmth',
+  },
+  {
+    id: 'gray-ice',
+    label: 'Cool Gray → Ice',
+    gradient: 'linear-gradient(135deg, oklch(65% 0.02 260), oklch(75% 0.10 230))',
+    gradientSm: 'linear-gradient(135deg, oklch(65% 0.02 260), oklch(75% 0.08 230))',
+    note: 'clinical · restrained · lab equipment',
+  },
+];
+
+// ── Physics ───────────────────────────────────────────────────────────────────
+function computeArc(deg, v0, g=9.8, steps=80) {
+  const a = deg*Math.PI/180;
+  const T = 2*v0*Math.sin(a)/g;
+  const pts = Array.from({length:steps+1},(_,i)=>{
+    const t=(i/steps)*T;
+    return{x:v0*Math.cos(a)*t, y:v0*Math.sin(a)*t-0.5*g*t*t};
+  });
+  const range = v0**2*Math.sin(2*a)/g;
+  const maxH  = (v0*Math.sin(a))**2/(2*g);
+  return {pts, T, range, maxH, apex:{x:range/2, y:maxH}};
+}
+
+// ── GradientText helper ───────────────────────────────────────────────────────
+function GT({ children, gradient, style={} }) {
+  return (
+    <span style={{background:gradient,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',...style}}>
+      {children}
+    </span>
+  );
+}
+
+// ── LogoMark ──────────────────────────────────────────────────────────────────
+function LogoMark({ gradient, size=20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{flexShrink:0}}>
+      <defs>
+        <linearGradient id={`lm-${size}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="currentColor"/>
+          <stop offset="100%" stopColor="currentColor"/>
+        </linearGradient>
+      </defs>
+      {/* Two overlapping rounded squares suggesting rotation/transformation */}
+      <rect x="3" y="3" width="15" height="15" rx="4" stroke="rgba(200,200,200,0.25)" strokeWidth="1.5" transform="rotate(-14 11 11)"/>
+      <rect x="3" y="3" width="15" height="15" rx="4" stroke="rgba(200,200,200,0.7)" strokeWidth="1.5" transform="rotate(8 11 11)"/>
+      <circle cx="11" cy="11" r="2" fill="rgba(200,200,200,0.8)"/>
+    </svg>
+  );
+}
+
+function Wordmark({ gradient, size=14 }) {
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:6}}>
+      <LogoMark gradient={gradient} size={size+4}/>
+      <span style={{fontFamily:M.font,fontWeight:600,fontSize:size,letterSpacing:'-0.02em',color:M.txt}}>
+        Pra<GT gradient={gradient}>x</GT>io
+      </span>
+    </div>
+  );
+}
+
+// ── SimCanvas ─────────────────────────────────────────────────────────────────
+function SimCanvas({ angle, velocity, showAnnotation, width, height, uid }) {
+  const OX = 72, OY = height - 50;
+  const SC = (width - 110) / 110;
+
+  function sv(px, py) { return {x: OX+px*SC, y: OY-py*SC}; }
+
+  const arc = computeArc(angle, velocity);
+  const rafRef = useRef(null);
+  const startRef = useRef(null);
+  const [ballFrac, setBallFrac] = useState(0);
+  const [trailFrac, setTrailFrac] = useState(0);
+
+  useEffect(() => {
+    startRef.current = null;
+    setBallFrac(0); setTrailFrac(0);
+    const dur = Math.max(arc.T*900, 1800);
+    const td  = 500;
+    function tick(ts) {
+      if (!startRef.current) startRef.current = ts;
+      const el = ts - startRef.current;
+      setTrailFrac(Math.min(el/td, 1));
+      setBallFrac(Math.min(el/dur, 1));
+      if (el/dur < 1) { rafRef.current = requestAnimationFrame(tick); }
+      else { setTimeout(()=>{startRef.current=null; rafRef.current=requestAnimationFrame(tick);},1400); }
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if(rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [angle, velocity]);
+
+  const visN = Math.max(2, Math.round(trailFrac*arc.pts.length));
+  const pathD = arc.pts.slice(0,visN).map((p,i)=>{const{x,y}=sv(p.x,p.y);return`${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`;}).join('');
+  const ghostD= arc.pts.map((p,i)=>{const{x,y}=sv(p.x,p.y);return`${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`;}).join('');
+  const bi = Math.round(ballFrac*(arc.pts.length-1));
+  const bp = arc.pts[bi]||arc.pts[arc.pts.length-1];
+  const bsv = sv(bp.x,bp.y);
+  const apSV = sv(arc.apex.x,arc.apex.y);
+  const laSV = sv(arc.range, 0);
+
+  // Axis labels
+  const xLabels=[], yLabels=[];
+  for(let x=20;x<=100;x+=20){ const sx=sv(x,0).x; xLabels.push({x:sx,l:`${x}`}); }
+  for(let y=5;y<=25;y+=5){   const sy=sv(0,y).y; yLabels.push({y:sy,l:`${y}`});  }
+
+  return (
+    <svg width={width} height={height} style={{display:'block',background:M.bg}}>
+      <defs>
+        <pattern id={`dg-${uid}`} x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
+          <circle cx="0" cy="0" r="0.9" fill="rgba(255,255,255,0.1)"/>
+        </pattern>
+      </defs>
+
+      {/* Dot grid */}
+      <rect width={width} height={height} fill={`url(#dg-${uid})`}/>
+
+      {/* Axes */}
+      <line x1={OX} y1={OY} x2={width-20} y2={OY} stroke={M.bdr2} strokeWidth="1"/>
+      <line x1={OX} y1={50}  x2={OX}      y2={OY} stroke={M.bdr2} strokeWidth="1"/>
+
+      {/* Tick marks + labels */}
+      {xLabels.map(({x,l})=>(
+        <g key={l}>
+          <line x1={x} y1={OY} x2={x} y2={OY+4} stroke={M.txt3} strokeWidth="1"/>
+          <text x={x} y={OY+14} fill={M.txt3} fontSize="9" textAnchor="middle" fontFamily={M.font}>{l}m</text>
+        </g>
+      ))}
+      {yLabels.map(({y,l})=>(
+        <g key={l}>
+          <line x1={OX-4} y1={y} x2={OX} y2={y} stroke={M.txt3} strokeWidth="1"/>
+          <text x={OX-7} y={y+3} fill={M.txt3} fontSize="9" textAnchor="end" fontFamily={M.font}>{l}m</text>
+        </g>
+      ))}
+
+      {/* Ghost arc — very faint */}
+      <path d={ghostD} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="1"/>
+
+      {/* Live arc — clean white */}
+      {pathD && <path d={pathD} fill="none" stroke="rgba(255,255,255,0.72)" strokeWidth="1.5" strokeLinecap="round"/>}
+
+      {/* Apex vertical guide */}
+      <line x1={apSV.x} y1={apSV.y} x2={apSV.x} y2={OY} stroke={M.txt3} strokeWidth="1" strokeDasharray="2,3"/>
+
+      {/* Range readout */}
+      <line x1={laSV.x} y1={OY-3} x2={laSV.x} y2={OY+5} stroke={M.txt2} strokeWidth="1"/>
+      <text x={laSV.x} y={OY+16} fill={M.txt2} fontSize="9" textAnchor="middle" fontFamily={M.font}>
+        R={arc.range.toFixed(1)}m
+      </text>
+
+      {/* Annotations — straight line, plain text */}
+      {showAnnotation && trailFrac >= 1 && (
+        <g>
+          <line x1={apSV.x} y1={apSV.y-4} x2={apSV.x+52} y2={apSV.y-52}
+            stroke="rgba(255,255,255,0.28)" strokeWidth="1"/>
+          <text x={apSV.x+56} y={apSV.y-54} fill="rgba(255,255,255,0.52)"
+            fontSize="10" fontFamily={M.font}>velocity components?</text>
+          <circle cx={apSV.x} cy={apSV.y} r="2.5" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="1"/>
+        </g>
+      )}
+      {showAnnotation && trailFrac >= 1 && (
+        <g style={{animation:'fadeIn 0.4s ease 0.3s both',opacity:0}}>
+          <line x1={laSV.x} y1={OY-5} x2={laSV.x} y2={OY-24}
+            stroke="rgba(255,255,255,0.2)" strokeWidth="1"/>
+          <text x={laSV.x+4} y={OY-26} fill="rgba(255,255,255,0.38)"
+            fontSize="10" fontFamily={M.font}>peak range — why 45°?</text>
+        </g>
+      )}
+
+      {/* Cannon */}
+      <rect x={OX-4} y={OY-5} width={16} height={10} rx="2"
+        fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.35)" strokeWidth="1"
+        transform={`rotate(-${angle} ${OX} ${OY})`}/>
+      <circle cx={OX} cy={OY} r="4" fill="rgba(255,255,255,0.3)" stroke="rgba(255,255,255,0.5)" strokeWidth="1"/>
+
+      {/* Ball */}
+      {ballFrac > 0 && <circle cx={bsv.x} cy={bsv.y} r="4.5" fill="rgba(255,255,255,0.85)"/>}
+
+      {/* Readouts top-right */}
+      <text x={width-12} y={18} fill={M.txt3} fontSize="9" textAnchor="end" fontFamily={M.font}>
+        θ={angle}° v₀={velocity}m/s g=9.8m/s²
+      </text>
+      <text x={width-12} y={30} fill={M.txt3} fontSize="9" textAnchor="end" fontFamily={M.font}>
+        H={arc.maxH.toFixed(1)}m T={arc.T.toFixed(2)}s R={arc.range.toFixed(1)}m
+      </text>
+
+      <style>{`@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
+    </svg>
+  );
+}
+
+// ── ParamPanel ────────────────────────────────────────────────────────────────
+function ParamPanel({ angle, velocity, onAngle, onVelocity, theme }) {
+  const params = [
+    { label:'launch_angle', val:`${angle}°`,  min:1,  max:89, value:angle,    onChange:onAngle,    pct:(angle-1)/88,  active:true  },
+    { label:'velocity',     val:`${velocity} m/s`, min:5, max:60, value:velocity, onChange:onVelocity, pct:(velocity-5)/55, active:false },
+    { label:'gravity',      val:'9.8 m/s²',   locked:true },
+  ];
+
+  return (
+    <div style={{
+      position:'absolute', left:12, top:10, width:208,
+      background:M.bg, border:`1px solid ${M.bdr}`, borderRadius:3,
+      padding:'10px 12px', display:'flex', flexDirection:'column', gap:14,
+    }}>
+      <div style={{fontSize:9, color:M.txt3, letterSpacing:'0.1em', textTransform:'uppercase'}}>
+        parameters
+      </div>
+      {params.map(p => (
+        <div key={p.label} style={{opacity:p.locked?0.35:1}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:7}}>
+            <span style={{fontSize:10,color:p.active?M.txt:M.txt2,fontFamily:M.font}}>
+              {p.locked && '🔒 '}{p.label}
+            </span>
+            <span style={{fontSize:10,color:p.active?M.txt:M.txt2,fontFamily:M.font,letterSpacing:'0.02em'}}>
+              {p.locked ? <GT gradient={theme.gradientSm}>{p.val}</GT> : p.val}
+            </span>
+          </div>
+          {!p.locked && (
+            <div style={{position:'relative',height:14,display:'flex',alignItems:'center'}}>
+              {/* Track */}
+              <div style={{position:'absolute',left:0,right:0,height:1,background:M.bdr2}}/>
+              {/* Native range (invisible, handles interaction) */}
+              <input type="range" min={p.min} max={p.max} value={p.value}
+                onChange={e=>p.onChange(+e.target.value)}
+                style={{position:'absolute',left:0,width:'100%',opacity:0,height:14,zIndex:2,cursor:'pointer'}}/>
+              {/* Custom thumb */}
+              <div style={{
+                position:'absolute', left:`calc(${p.pct*100}% - 6px)`,
+                width:12, height:12, borderRadius:'50%', pointerEvents:'none',
+                background: p.active ? theme.gradientSm : `rgba(180,180,180,0.6)`,
+                border:`1px solid ${p.active ? 'rgba(255,255,255,0.3)' : M.bdr2}`,
+                zIndex:1,
+              }}/>
+              {/* Highlight ring on active */}
+              {p.active && (
+                <div style={{
+                  position:'absolute',left:`calc(${p.pct*100}% - 9px)`,
+                  width:18,height:18,borderRadius:'50%',pointerEvents:'none',
+                  border:'1px solid rgba(255,255,255,0.15)', zIndex:0,
+                }}/>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── TopBar ────────────────────────────────────────────────────────────────────
+function TopBar({ theme, concept, width }) {
+  return (
+    <div style={{
+      height:38,width,display:'flex',alignItems:'center',
+      padding:'0 14px',gap:10,background:M.bg2,
+      borderBottom:`1px solid ${M.bdr}`,flexShrink:0,
+    }}>
+      <Wordmark gradient={theme.gradient} size={13}/>
+      <div style={{width:1,height:14,background:M.bdr2}}/>
+      <span style={{fontSize:11,color:M.txt2,fontFamily:M.font,flex:1,
+        overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+        {concept}
+      </span>
+      <span style={{
+        fontSize:9,color:M.txt3,fontFamily:M.font,
+        border:`1px solid ${M.bdr}`,borderRadius:2,padding:'2px 8px'
+      }}>main · cp 2/3</span>
+    </div>
+  );
+}
+
+// ── TutorStrip ────────────────────────────────────────────────────────────────
+const MSGS = [
+  {q:"Before you calculate anything — if you increase the angle from 30 to 60°, what do you predict happens to the range?", ev:null},
+  {q:"What's happening to the horizontal component as you tilt further up?", ev:"param_changed  launch_angle  30→60  range: 34.3m"},
+  {q:"You're at 45°. Look at the range. What's geometrically special about this angle?", ev:"param_changed  launch_angle → 45  range: 91.8m  ↑ max"},
+  {q:"Cut gravity in half — same angle, same velocity. What changes?", ev:"checkpoint_restored  gravity_unlocked"},
+];
+
+function TutorStrip({ theme, msgIdx, onNext, width }) {
+  const msg = MSGS[msgIdx % MSGS.length];
+  const [inputVal, setInputVal] = useState('');
+
+  return (
+    <div style={{
+      height:70,display:'flex',alignItems:'stretch',
+      background:M.bg2,borderTop:`1px solid ${M.bdr}`,
+      flexShrink:0,width,
+    }}>
+      {/* Gradient left accent */}
+      <div style={{width:3,background:theme.gradient,flexShrink:0}}/>
+
+      {/* Tutor text */}
+      <div style={{flex:1,padding:'0 16px',display:'flex',flexDirection:'column',justifyContent:'center',gap:5}}>
+        <div style={{fontSize:11.5,color:M.txt,fontFamily:M.font,lineHeight:1.5}}>
+          {msg.q}
+        </div>
+        {msg.ev && (
+          <div style={{fontSize:9,color:M.txt3,fontFamily:M.font,letterSpacing:'0.03em'}}>
+            ↳  {msg.ev}
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div style={{
+        width:180,borderLeft:`1px solid ${M.bdr}`,
+        display:'flex',flexDirection:'column',justifyContent:'center',
+        padding:'0 12px',gap:6,flexShrink:0,
+      }}>
+        <input value={inputVal} onChange={e=>setInputVal(e.target.value)}
+          placeholder="type reply…"
+          style={{
+            background:'transparent',border:`1px solid ${M.bdr}`,borderRadius:2,
+            padding:'5px 8px',fontSize:10,color:M.txt,fontFamily:M.font,outline:'none',
+          }}/>
+        {/* Primary CTA — gradient border */}
+        <div style={{background:theme.gradientSm,padding:'1px',borderRadius:2}}>
+          <button onClick={onNext} style={{
+            display:'block',width:'100%',background:M.bg2,border:'none',borderRadius:1,
+            padding:'4px 8px',fontSize:9.5,color:M.txt2,fontFamily:M.font,
+            cursor:'pointer',letterSpacing:'0.02em',textAlign:'center'
+          }}>next question →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── WorkspaceVariant ──────────────────────────────────────────────────────────
+function WorkspaceVariant({ theme, width=960, height=580 }) {
+  const [angle, setAngle] = useState(30);
+  const [velocity, setVelocity] = useState(30);
+  const [showAnnotation, setShowAnnotation] = useState(true);
+  const [msgIdx, setMsgIdx] = useState(0);
+
+  const simH = height - 38 - 70;
+
+  return (
+    <div style={{width,height,background:M.bg,display:'flex',flexDirection:'column',
+      fontFamily:M.font,overflow:'hidden',position:'relative'}}>
+      <TopBar theme={theme} concept="why does launch angle affect projectile range?" width={width}/>
+      <div style={{flex:1,position:'relative',overflow:'hidden'}}>
+        <SimCanvas angle={angle} velocity={velocity} showAnnotation={showAnnotation}
+          width={width} height={simH} uid={theme.id}/>
+        <ParamPanel angle={angle} velocity={velocity}
+          onAngle={a=>{setAngle(a);}} onVelocity={setVelocity} theme={theme}/>
+        {/* Annotation toggle */}
+        <button onClick={()=>setShowAnnotation(v=>!v)} style={{
+          position:'absolute',right:10,top:10,
+          background:'transparent',border:`1px solid ${M.bdr}`,borderRadius:2,
+          padding:'4px 10px',fontSize:9,color:M.txt3,fontFamily:M.font,cursor:'pointer'
+        }}>
+          {showAnnotation ? 'annotations on' : 'annotations off'}
+        </button>
+      </div>
+      <TutorStrip theme={theme} msgIdx={msgIdx}
+        onNext={()=>setMsgIdx(i=>(i+1)%4)} width={width}/>
+
+      {/* Theme label strip */}
+      <div style={{
+        position:'absolute',bottom:72,left:3,
+        fontSize:9,color:M.txt3,fontFamily:M.font,
+        display:'flex',flexDirection:'column',gap:2,padding:'6px 10px',
+        background:M.bg,borderRight:`1px solid ${M.bdr}`,borderTop:`1px solid ${M.bdr}`,
+        borderRadius:'0 3px 0 0'
+      }}>
+        <GT gradient={theme.gradient} style={{fontSize:9,fontWeight:600}}>{theme.label}</GT>
+        <span>{theme.note}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App() {
+  return (
+    <DesignCanvas title="Praxio — Workspace Variants">
+      <DCSection id="variants" title="Brand Gradient Comparison — Workspace">
+        {THEMES.map(theme => (
+          <DCArtboard key={theme.id} id={theme.id} label={theme.label} width={960} height={580}>
+            <WorkspaceVariant theme={theme} width={960} height={580}/>
+          </DCArtboard>
+        ))}
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

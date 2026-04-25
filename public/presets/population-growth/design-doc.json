@@ -1,0 +1,121 @@
+{
+  "concept": "logistic population growth",
+  "domain": "biology",
+  "renderer": "canvas2d",
+  "episodic": false,
+  "params": [
+    {
+      "name": "growth_rate",
+      "range": [0.1, 2.5],
+      "default": 0.7,
+      "label": "Growth Rate (r)",
+      "unit": ""
+    },
+    {
+      "name": "carrying_capacity",
+      "range": [100, 1000],
+      "default": 500,
+      "label": "Carrying Capacity (K)",
+      "unit": ""
+    },
+    {
+      "name": "initial_pop",
+      "range": [5, 150],
+      "default": 30,
+      "label": "Starting Population",
+      "unit": ""
+    }
+  ],
+  "governing_equations": [
+    "N_{t+1} = N_t + r N_t \\left(1 - \\frac{N_t}{K}\\right)",
+    "Equilibrium at N = K; inflection near N = K/2 for logistic growth"
+  ],
+  "emit_events": ["reached_inflection", "near_capacity"],
+  "register_regions": ["start_point", "inflection_point", "carrying_capacity_line"],
+  "initial_staging": {
+    "locked": ["carrying_capacity", "growth_rate", "initial_pop"],
+    "highlighted": ["carrying_capacity"]
+  },
+  "socratic_plan": [
+    {
+      "id": "predict_shape",
+      "question": "Looking at the early generations, what do you think will happen to the population as it approaches K? Will it keep accelerating, slow down, or something else?",
+      "learning_goal": "Student predicts the decelerating growth before observing it",
+      "exit_condition": "Student makes a prediction about the curve shape near K",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "highlight": ["carrying_capacity"], "lock": ["carrying_capacity", "growth_rate", "initial_pop"] }
+    },
+    {
+      "id": "find_fastest_growth",
+      "question": "Click on the point in the simulation where you think the population is growing the fastest.",
+      "learning_goal": "Student identifies the inflection point as the location of maximum growth rate",
+      "exit_condition": "Student clicks near the inflection point region",
+      "interaction": { "kind": "click_to_query", "regions": ["inflection_point"] },
+      "staging": { "unlock": ["growth_rate", "carrying_capacity", "initial_pop"], "highlight": ["growth_rate"] }
+    },
+    {
+      "id": "explore_r",
+      "question": "What happens to the shape of the curve if you increase the growth rate r? Try it and describe what you see.",
+      "learning_goal": "Student discovers that r controls the steepness but not the final level",
+      "exit_condition": "Student notices the curve rises faster but still levels off at K",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "highlight": ["growth_rate"], "lock": ["carrying_capacity"] }
+    },
+    {
+      "id": "k_meaning",
+      "question": "The population always levels off at K regardless of the growth rate. What do you think K represents in a real ecosystem?",
+      "learning_goal": "Student connects the mathematical ceiling to the real-world concept of carrying capacity",
+      "exit_condition": "Student articulates that K is set by resource limits in the environment",
+      "interaction": { "kind": "verbal_response" },
+      "staging": {
+        "unlock": ["carrying_capacity"],
+        "annotate": [
+          { "region": "carrying_capacity_line", "text": "Maximum sustainable population" },
+          { "region": "inflection_point", "text": "Growth rate peaks here at K/2" }
+        ]
+      }
+    }
+  ],
+  "verification": {
+    "summary": "Higher intrinsic growth rate r reaches the near-capacity band in fewer generations while converging to the same K; final reported population should stay near K across r for fixed K and n0.",
+    "probes": [
+      {
+        "id": "r_slow",
+        "description": "Low r — slower approach to carrying capacity",
+        "params": { "growth_rate": 0.35, "carrying_capacity": 500, "initial_pop": 25 },
+        "expected_metrics": ["generation", "population"]
+      },
+      {
+        "id": "r_med",
+        "description": "Default-scale r",
+        "params": { "growth_rate": 0.7, "carrying_capacity": 500, "initial_pop": 25 },
+        "expected_metrics": ["generation", "population"]
+      },
+      {
+        "id": "r_fast",
+        "description": "Higher r (still moderate) so discrete steps reach the near-capacity band in the verifier window.",
+        "params": { "growth_rate": 1.0, "carrying_capacity": 500, "initial_pop": 25 },
+        "expected_metrics": ["generation", "population"]
+      }
+    ],
+    "invariants": [
+      {
+        "kind": "monotonic",
+        "id": "generation_vs_growth_rate",
+        "description": "Generation index when crossing the near-capacity band should decrease as r increases (fixed K, n0).",
+        "probe_order": ["r_slow", "r_med", "r_fast"],
+        "metric": "generation",
+        "direction": "decreasing"
+      },
+      {
+        "kind": "approximately_equal",
+        "id": "plateau_population_same_k",
+        "description": "Final population at the near-capacity event should match across growth rates for the same K.",
+        "left_probe": "r_slow",
+        "right_probe": "r_fast",
+        "metric": "population",
+        "tolerance_percent": 12
+      }
+    ]
+  }
+}

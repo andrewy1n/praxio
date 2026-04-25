@@ -1,0 +1,1449 @@
+<!DOCTYPE html>
+<!--
+  Praxio test harness — open at http://localhost:3000/test.html
+  Tests the full generate pipeline (Pass 1 → design-doc consistency → Pass 2 →
+  behavioral verification → optional preset fallback) → iframe → tutor loop, no React UI.
+
+  Observability: the "Request pipeline trace" checkbox sends X-Praxio-Debug: 1 so
+  /api/generate includes a generation trace in the JSON (same as PRAXIO_DEBUG_GENERATION=1).
+-->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Praxio Test Harness</title>
+  <style>
+    body { font-family: monospace; background: #0a0a0a; color: #d4d4d4; margin: 0; display: flex; height: 100vh; }
+    #controls { width: 320px; padding: 16px; border-right: 1px solid #222; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+    #sim-area { flex: 1; position: relative; }
+    iframe { width: 100%; height: 100%; border: none; }
+    input, textarea, select { width: 100%; background: #1a1a1a; border: 1px solid #333; color: #d4d4d4; padding: 6px 8px; font-family: monospace; font-size: 12px; border-radius: 4px; }
+    button { background: #d4d4d4; color: #0a0a0a; border: none; padding: 7px 12px; font-family: monospace; font-size: 12px; cursor: pointer; border-radius: 4px; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    label { font-size: 11px; color: #888; }
+    #log { font-size: 11px; color: #888; white-space: pre-wrap; word-break: break-all; }
+    .param-control { border: 1px solid transparent; border-radius: 6px; padding: 8px; transition: border-color 160ms, background 160ms, box-shadow 160ms; }
+    .param-control.is-highlighted { border-color: #facc15; background: rgba(250, 204, 21, 0.08); box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.14); }
+    .param-control.is-locked { opacity: 0.55; }
+    .param-control.is-locked label::after { content: " locked"; color: #f87171; }
+    #interaction-layer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+    #visual-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+    .region-highlight { position: absolute; transform: translate(-50%, -50%); width: 36px; height: 36px; border-radius: 50%; border: 2px solid #facc15; box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.15), 0 0 18px rgba(250, 204, 21, 0.4); animation: ring-pulse 1.2s ease-in-out infinite; pointer-events: none; }
+    .region-focus { position: absolute; transform: translate(-50%, -50%); border: 2px solid #60a5fa; color: #bfdbfe; background: rgba(10, 10, 10, 0.8); padding: 6px 10px; border-radius: 999px; box-shadow: 0 0 20px rgba(96, 165, 250, 0.3); }
+    .annotation-card { position: absolute; transform: translate(12px, -50%); max-width: 280px; background: rgba(10, 10, 10, 0.88); border: 1px solid #60a5fa; color: #dbeafe; border-radius: 8px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+    .annotation-card strong { display: block; color: #93c5fd; margin-bottom: 4px; }
+    .socratic-card { border: 1px solid #333; background: #111; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .socratic-card strong { color: #facc15; font-size: 12px; }
+    .socratic-card span { color: #aaa; font-size: 11px; line-height: 1.4; }
+    @keyframes ring-pulse { 0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; } 50% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; } }
+    h3 { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin: 4px 0; }
+    hr { border: none; border-top: 1px solid #222; }
+    .verify-card { border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
+    .verify-card.passed { border: 1px solid #4ade80; background: rgba(74,222,128,0.06); }
+    .verify-card.failed { border: 1px solid #f87171; background: rgba(248,113,113,0.06); }
+    .verify-card.pending { border: 1px solid #333; background: #111; }
+    .verify-summary { font-size: 13px; font-weight: bold; }
+    .verify-summary.passed { color: #4ade80; }
+    .verify-summary.failed { color: #f87171; }
+    .verify-check { display: flex; gap: 6px; align-items: flex-start; line-height: 1.4; }
+    .check-badge { flex-shrink: 0; font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-top: 1px; }
+    .check-badge.passed { background: rgba(74,222,128,0.2); color: #4ade80; }
+    .check-badge.failed { background: rgba(248,113,113,0.2); color: #f87171; }
+    .verify-probe-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+    .verify-probe-table th { color: #888; text-align: left; padding: 2px 4px; border-bottom: 1px solid #222; }
+    .verify-probe-table td { color: #bdbdbd; padding: 2px 4px; border-bottom: 1px solid #181818; }
+    .verify-probe-table td.metric-val { color: #60a5fa; font-family: monospace; }
+    .verify-probe-table td.no-metric { color: #555; font-style: italic; }
+    .section-toggle { cursor: pointer; color: #888; font-size: 10px; text-decoration: underline; }
+    .generation-obs { border: 1px solid #333; background: #111; border-radius: 8px; padding: 10px 12px; font-size: 11px; margin-top: 8px; }
+    .generation-obs.obs-ok { border-color: #4ade80; }
+    .generation-obs.obs-err { border-color: #f87171; }
+    .generation-obs.obs-pending { border-color: #444; }
+    .obs-line { margin: 4px 0; line-height: 1.45; }
+    .obs-k { color: #888; }
+    .obs-mono { font-family: monospace; color: #a5b4fc; }
+    .obs-trace-wrap { margin-top: 8px; }
+    .obs-trace-wrap summary { cursor: pointer; color: #facc15; font-size: 10px; user-select: none; }
+    .obs-trace-pre { max-height: 280px; overflow: auto; background: #0a0a0a; border: 1px solid #222; padding: 8px; border-radius: 4px; font-size: 10px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
+    .consistency-err { font-size: 10px; color: #fca5a5; margin: 2px 0; padding-left: 8px; border-left: 2px solid #f87171; }
+    label.obs-check { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaa; margin-top: 8px; }
+    label.obs-check input { width: auto; }
+  </style>
+  <!-- Presets: served from /presets/<key>/sim.js + design-doc.json (files in public/presets/) -->
+
+</head>
+<body>
+
+<div id="controls">
+  <h3>Generate Sim</h3>
+  <label>Concept</label>
+  <input id="concept" value="projectile motion" />
+  <label class="obs-check"><input type="checkbox" id="chk-debug-trace" checked /> Request pipeline <code>trace</code> (<code>X-Praxio-Debug: 1</code> — also works with <code>PRAXIO_DEBUG_GENERATION=1</code> on the server)</label>
+  <button id="btn-generate">Generate</button>
+  <div id="generation-obs" class="generation-obs obs-pending" aria-live="polite">
+    <div class="obs-line"><span class="obs-k">Pipeline:</span> not run yet. Uses Pass 1 → design-doc consistency → Pass 2 (static) → behavioral verification → optional preset fallback.</div>
+  </div>
+
+  <hr />
+  <h3>Presets</h3>
+  <select id="preset-select">
+    <option value="projectile-motion">Projectile Motion (p5)</option>
+    <option value="population-growth">Logistic Population Growth (canvas2d)</option>
+  </select>
+  <button id="btn-load-preset">Load Preset</button>
+
+  <hr />
+  <h3>Load Sim Directly</h3>
+  <label>Paste sim code</label>
+  <textarea id="sim-code" rows="6" placeholder="Paste generated sim code here..."></textarea>
+  <label>Paste design doc JSON</label>
+  <textarea id="design-doc" rows="8" placeholder='Paste designDoc JSON here to enable tutor staging...'></textarea>
+  <select id="renderer-select">
+    <option value="p5">p5</option>
+    <option value="canvas2d">canvas2d</option>
+    <option value="jsxgraph">jsxgraph</option>
+    <option value="matter">matter</option>
+  </select>
+  <button id="btn-load-direct">Load in iframe</button>
+
+  <hr />
+  <h3>Socratic Step</h3>
+  <select id="socratic-step-select" disabled></select>
+  <div id="socratic-step-card" class="socratic-card">
+    <span>Load a design doc with <code>socratic_plan</code> to drive the question flow.</span>
+  </div>
+  <button id="btn-step-prev" disabled>Previous step</button>
+  <button id="btn-step-next" disabled>Next step</button>
+
+  <hr />
+  <h3>Prediction + Query</h3>
+  <button id="btn-sketch-toggle" disabled>Start prediction sketch</button>
+  <button id="btn-sketch-submit" disabled>Submit prediction sketch</button>
+  <button id="btn-sketch-clear" disabled>Clear prediction sketch</button>
+  <div id="sketch-status" style="font-size: 11px; color: #888;">Load a sim to enable sketching.</div>
+  <label>Hypothesis metric</label>
+  <select id="hypothesis-metric">
+    <option value="range_m">range_m</option>
+    <option value="max_height_m">max_height_m</option>
+    <option value="time_of_flight_s">time_of_flight_s</option>
+  </select>
+  <label>Hypothesis value</label>
+  <input id="hypothesis-value" type="number" placeholder="45" />
+  <label>Hypothesis unit</label>
+  <input id="hypothesis-unit" value="m" />
+  <button id="btn-hypothesis-submit" disabled>Submit numerical hypothesis</button>
+  <button id="btn-focus-arm" disabled>Arm click-to-query</button>
+  <div id="focus-status" style="font-size: 11px; color: #888;">Load a sim to enable click-to-query.</div>
+
+  <hr />
+  <h3>Sim Controls</h3>
+  <button id="btn-launch" disabled>Launch →</button>
+  <button id="btn-reset" disabled>↺ Reset</button>
+  <button id="btn-pause" disabled>Pause</button>
+  <button id="btn-play" disabled>Play</button>
+  <div id="sim-controls-status" style="font-size: 11px; color: #888;">Load a sim to enable controls.</div>
+
+  <hr />
+  <h3>Tutor (stage)</h3>
+  <label>Student utterance</label>
+  <input id="utterance" value="I'm not sure what changes the range" />
+  <button id="btn-stage" disabled>Call /api/tutor/stage</button>
+
+  <hr />
+  <h3>ElevenLabs TTS</h3>
+  <label>Source</label>
+  <div style="font-size: 11px; color: #888;">Uses server env via <code>/api/tts</code></div>
+  <label>Auto play tutor text</label>
+  <select id="tts-auto-play">
+    <option value="on" selected>on</option>
+    <option value="off">off</option>
+  </select>
+  <button id="btn-tts-play" disabled>Play last tutor response</button>
+  <audio id="tts-audio" controls></audio>
+
+  <hr />
+  <h3>Verification</h3>
+  <div id="verification-card" class="verify-card pending">
+    <span style="color:#555;">Run Generate or click Re-run Verification after loading a sim.</span>
+  </div>
+  <button id="btn-verify" disabled>Re-run Verification</button>
+
+  <hr />
+  <h3>Parameters</h3>
+  <div id="params">Load a sim to see controls.</div>
+
+  <hr />
+  <h3>Events</h3>
+  <div id="log">Waiting...</div>
+</div>
+
+<div id="sim-area">
+  <iframe id="sim-iframe" src="/iframe/p5.html"></iframe>
+  <canvas id="interaction-layer"></canvas>
+  <div id="visual-overlay"></div>
+</div>
+
+<script>
+  const iframe = document.getElementById('sim-iframe')
+  const simArea = document.getElementById('sim-area')
+  const log = document.getElementById('log')
+  const paramsRoot = document.getElementById('params')
+  const interactionLayer = document.getElementById('interaction-layer')
+  const interactionCtx = interactionLayer.getContext('2d')
+  const visualOverlay = document.getElementById('visual-overlay')
+
+  let manifest = null
+  let designDoc = null
+  let messages = []
+  let pendingEvents = []
+  let lastTutorText = ''
+  let lastAudioUrl = null
+  const highlightedTargets = new Set()
+  const lockedParams = new Set()
+  const annotations = {}
+  const regionPositions = {}
+  const paramValues = {}
+  const predictionSketchPoints = []
+  let sketchModeActive = false
+  let sketchDrawingActive = false
+  let clickToQueryArmed = false
+  let selectedFocus = null
+  let activeSocraticStepId = null
+  let simPaused = false
+  let simPhase = 'active'  // 'idle' | 'active' | 'done' — only meaningful when manifest.episodic
+  let cannonDragActive = false
+  let cannonDragPointerId = null
+
+  function appendLog(label, data) {
+    const line = `[${label}] ${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}\n`
+    log.textContent = line + log.textContent
+  }
+
+  function getSocraticPlan() {
+    return Array.isArray(designDoc?.socratic_plan) ? designDoc.socratic_plan : []
+  }
+
+  function getActiveSocraticStep() {
+    const plan = getSocraticPlan()
+    return plan.find((step) => step.id === activeSocraticStepId) || plan[0] || null
+  }
+
+  function stepIndexById(stepId) {
+    return getSocraticPlan().findIndex((step) => step.id === stepId)
+  }
+
+  function queueTutorEvent(event) {
+    pendingEvents.push(event)
+    appendLog('queued:event', event)
+  }
+
+  function setSketchStatus(text) {
+    document.getElementById('sketch-status').textContent = text
+  }
+
+  function setFocusStatus(text) {
+    document.getElementById('focus-status').textContent = text
+  }
+
+  function setInteractionMode() {
+    const cannonDragEnabled = shouldEnableCannonDrag()
+    const active = sketchModeActive || clickToQueryArmed || cannonDragEnabled || cannonDragActive
+    interactionLayer.style.pointerEvents = active ? 'auto' : 'none'
+    interactionLayer.style.cursor = sketchModeActive
+      ? 'crosshair'
+      : (clickToQueryArmed
+        ? 'crosshair'
+        : (cannonDragActive ? 'grabbing' : (cannonDragEnabled ? 'grab' : 'default')))
+    document.getElementById('btn-sketch-toggle').textContent = sketchModeActive
+      ? 'Stop prediction sketch'
+      : 'Start prediction sketch'
+  }
+
+  function disableStepAffordances() {
+    document.getElementById('btn-sketch-toggle').disabled = true
+    document.getElementById('btn-sketch-submit').disabled = true
+    document.getElementById('btn-sketch-clear').disabled = true
+    document.getElementById('btn-hypothesis-submit').disabled = true
+    document.getElementById('btn-focus-arm').disabled = true
+  }
+
+  function applySocraticStepStaging(step) {
+    if (!step?.staging) return
+    ;(step.staging.lock || []).forEach((element_id) => {
+      const tc = { toolName: 'lock', input: { element_id } }
+      applyVisualToolCall(tc)
+      const cmd = toolCallToAgentCmd(tc)
+      if (cmd) iframe.contentWindow?.postMessage(cmd, '*')
+    })
+    ;(step.staging.unlock || []).forEach((element_id) => {
+      const tc = { toolName: 'unlock', input: { element_id } }
+      applyVisualToolCall(tc)
+      const cmd = toolCallToAgentCmd(tc)
+      if (cmd) iframe.contentWindow?.postMessage(cmd, '*')
+    })
+    ;(step.staging.highlight || []).forEach((element_id) => {
+      const tc = { toolName: 'highlight', input: { element_id } }
+      applyVisualToolCall(tc)
+      const cmd = toolCallToAgentCmd(tc)
+      if (cmd) iframe.contentWindow?.postMessage(cmd, '*')
+    })
+    ;(step.staging.annotate || []).forEach(({ region, text }) => {
+      const tc = { toolName: 'add_annotation', input: { region, text } }
+      applyVisualToolCall(tc)
+      const cmd = toolCallToAgentCmd(tc)
+      if (cmd) iframe.contentWindow?.postMessage(cmd, '*')
+    })
+    Object.entries(step.staging.set_params || {}).forEach(([name, value]) => {
+      const tc = { toolName: 'set_param', input: { name, value } }
+      applyVisualToolCall(tc)
+      const cmd = toolCallToAgentCmd(tc)
+      if (cmd) iframe.contentWindow?.postMessage(cmd, '*')
+    })
+  }
+
+  function activateSocraticStep(stepId, options = {}) {
+    const plan = getSocraticPlan()
+    const step = plan.find((item) => item.id === stepId) || plan[0] || null
+    activeSocraticStepId = step?.id || null
+    sketchModeActive = false
+    sketchDrawingActive = false
+    clickToQueryArmed = false
+    if (step && options.applyStaging !== false) applySocraticStepStaging(step)
+    renderSocraticStepControls()
+    setInteractionMode()
+    updateRegionTracking()
+  }
+
+  function renderSocraticStepControls() {
+    const plan = getSocraticPlan()
+    const step = getActiveSocraticStep()
+    const select = document.getElementById('socratic-step-select')
+    const card = document.getElementById('socratic-step-card')
+    const prev = document.getElementById('btn-step-prev')
+    const next = document.getElementById('btn-step-next')
+    const ready = Boolean(manifest && designDoc && plan.length > 0)
+
+    select.disabled = !ready
+    prev.disabled = !ready || stepIndexById(activeSocraticStepId) <= 0
+    next.disabled = !ready || stepIndexById(activeSocraticStepId) >= plan.length - 1
+    select.innerHTML = ''
+
+    if (!ready || !step) {
+      card.innerHTML = '<span>Load a design doc with <code>socratic_plan</code> to drive the question flow.</span>'
+      disableStepAffordances()
+      return
+    }
+
+    plan.forEach((item, index) => {
+      const option = document.createElement('option')
+      option.value = item.id
+      option.textContent = `${index + 1}. ${item.id}`
+      option.selected = item.id === step.id
+      select.appendChild(option)
+    })
+
+    const interaction = step.interaction || { kind: 'verbal_response' }
+    card.innerHTML = `
+      <strong>${step.question}</strong>
+      <span>Goal: ${step.learning_goal}</span>
+      <span>Interaction: ${interaction.kind}</span>
+      <span>Exit: ${step.exit_condition}</span>
+    `
+
+    disableStepAffordances()
+    setSketchStatus('This step does not need a prediction sketch.')
+    setFocusStatus('This step does not need click-to-query.')
+
+    if (interaction.kind === 'prediction_sketch') {
+      document.getElementById('btn-sketch-toggle').disabled = false
+      document.getElementById('btn-sketch-clear').disabled = false
+      document.getElementById('btn-sketch-submit').disabled = predictionSketchPoints.length < 2
+      setSketchStatus('This step expects a prediction sketch before observation.')
+    }
+
+    if (interaction.kind === 'numeric_hypothesis') {
+      document.getElementById('btn-hypothesis-submit').disabled = false
+      const metricSelect = document.getElementById('hypothesis-metric')
+      if (![...metricSelect.options].some((option) => option.value === interaction.metric)) {
+        const option = document.createElement('option')
+        option.value = interaction.metric
+        option.textContent = interaction.metric
+        metricSelect.appendChild(option)
+      }
+      metricSelect.value = interaction.metric
+      document.getElementById('hypothesis-unit').value = interaction.unit || ''
+      setSketchStatus(`This step expects a numeric hypothesis for ${interaction.metric}.`)
+    }
+
+    if (interaction.kind === 'click_to_query') {
+      document.getElementById('btn-focus-arm').disabled = false
+      setFocusStatus(`This step expects focus on: ${(interaction.regions || []).join(', ') || 'any region'}.`)
+    }
+  }
+
+  function fitInteractionLayer() {
+    const width = Math.max(1, simArea.clientWidth)
+    const height = Math.max(1, simArea.clientHeight)
+    const dpr = window.devicePixelRatio || 1
+    interactionLayer.width = Math.floor(width * dpr)
+    interactionLayer.height = Math.floor(height * dpr)
+    interactionLayer.style.width = `${width}px`
+    interactionLayer.style.height = `${height}px`
+    interactionCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    drawInteractionLayer()
+  }
+
+  function findRegionByCandidates(candidates) {
+    if (!manifest) return null
+    const normalized = candidates.map((name) => name.toLowerCase())
+    return manifest.regions.find((region) => normalized.includes(region.toLowerCase())) || null
+  }
+
+  function drawInteractionLayer() {
+    interactionCtx.clearRect(0, 0, interactionLayer.clientWidth, interactionLayer.clientHeight)
+
+    if (predictionSketchPoints.length > 1) {
+      interactionCtx.beginPath()
+      interactionCtx.setLineDash([6, 4])
+      interactionCtx.strokeStyle = '#22d3ee'
+      interactionCtx.lineWidth = 2
+      interactionCtx.moveTo(predictionSketchPoints[0].x, predictionSketchPoints[0].y)
+      for (let i = 1; i < predictionSketchPoints.length; i += 1) {
+        interactionCtx.lineTo(predictionSketchPoints[i].x, predictionSketchPoints[i].y)
+      }
+      interactionCtx.stroke()
+      interactionCtx.setLineDash([])
+    }
+  }
+
+  function clearPredictionSketch() {
+    predictionSketchPoints.length = 0
+    drawInteractionLayer()
+    document.getElementById('btn-sketch-submit').disabled = true
+    setSketchStatus('Prediction sketch cleared.')
+  }
+
+  function nearestRegionToPoint(x, y) {
+    if (!manifest || manifest.regions.length === 0) return null
+    let best = null
+    manifest.regions.forEach((region, index) => {
+      const pos = getRegionPosition(region, index)
+      const dx = pos.x - x
+      const dy = pos.y - y
+      const distSq = dx * dx + dy * dy
+      if (!best || distSq < best.distSq) {
+        best = { region, distSq }
+      }
+    })
+    return best ? best.region : null
+  }
+
+  function getParamMeta(paramName) {
+    return manifest?.params?.find((param) => param.name === paramName) || null
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value))
+  }
+
+  function getAngleDragPivot() {
+    const launchPos = regionPositions.launch_point || fallbackRegionPosition(0)
+    return { x: launchPos.x, y: launchPos.y - 4 }
+  }
+
+  function angleFromPoint(x, y) {
+    const pivot = getAngleDragPivot()
+    const radians = Math.atan2(pivot.y - y, x - pivot.x)
+    return radians * 180 / Math.PI
+  }
+
+  function setAngleFromPointer(x, y) {
+    const angleMeta = getParamMeta('angle')
+    if (!angleMeta) return
+    const rawValue = clamp(angleFromPoint(x, y), angleMeta.min, angleMeta.max)
+    const nextValue = Math.round(rawValue * 10) / 10
+    setParamValueInUi('angle', nextValue)
+    iframe.contentWindow?.postMessage({
+      type: 'AGENT_CMD',
+      action: 'set_param',
+      target: 'angle',
+      value: nextValue,
+    }, '*')
+  }
+
+  function shouldEnableCannonDrag() {
+    return Boolean(manifest && isParamTarget('angle')) &&
+      !lockedParams.has('angle') &&
+      !sketchModeActive &&
+      !clickToQueryArmed &&
+      simPhase !== 'active'
+  }
+
+  function isNearCannonDragZone(x, y) {
+    if (!shouldEnableCannonDrag()) return false
+    const pivot = getAngleDragPivot()
+    const dx = x - pivot.x
+    const dy = y - pivot.y
+    const distSq = dx * dx + dy * dy
+    return distSq <= 85 * 85 && x >= pivot.x - 24 && y <= pivot.y + 24
+  }
+
+  function ttsAutoPlayEnabled() {
+    return document.getElementById('tts-auto-play').value === 'on'
+  }
+
+  function updateSimControls() {
+    const canAnimate = Boolean(manifest?.animates)
+    const isEpisodic = Boolean(manifest?.episodic)
+    const isActive = simPhase === 'active'
+
+    document.getElementById('btn-launch').disabled = !isEpisodic || simPhase !== 'idle'
+    document.getElementById('btn-reset').disabled  = !isEpisodic || simPhase !== 'done'
+    document.getElementById('btn-pause').disabled  = !canAnimate || !isActive || simPaused
+    document.getElementById('btn-play').disabled   = !canAnimate || !isActive || !simPaused
+
+    let status = 'Load a sim to enable controls.'
+    if (manifest) {
+      if (!canAnimate) status = 'Static sim — no playback controls.'
+      else if (isEpisodic && simPhase === 'idle') status = 'Ready. Adjust params then launch.'
+      else if (isActive && simPaused) status = 'Paused.'
+      else if (isActive) status = 'Running.'
+      else if (isEpisodic && simPhase === 'done') status = 'Done. Adjust params and reset to rerun.'
+    }
+    document.getElementById('sim-controls-status').textContent = status
+    setInteractionMode()
+  }
+
+  function updateTutorButtonState() {
+    const ready = Boolean(manifest && designDoc)
+    document.getElementById('btn-stage').disabled = !ready
+    if (!ready) {
+      disableStepAffordances()
+    }
+    renderSocraticStepControls()
+  }
+
+  function resetLoadedSession() {
+    manifest = null
+    pendingEvents = []
+    highlightedTargets.clear()
+    lockedParams.clear()
+    Object.keys(annotations).forEach((region) => delete annotations[region])
+    Object.keys(regionPositions).forEach((region) => delete regionPositions[region])
+    Object.keys(paramValues).forEach((param) => delete paramValues[param])
+    predictionSketchPoints.length = 0
+    sketchModeActive = false
+    sketchDrawingActive = false
+    clickToQueryArmed = false
+    selectedFocus = null
+    activeSocraticStepId = null
+    simPaused = false
+    simPhase = 'active'
+    cannonDragActive = false
+    cannonDragPointerId = null
+    paramsRoot.textContent = 'Load a sim to see controls.'
+    visualOverlay.innerHTML = ''
+    setSketchStatus('Load a sim to enable sketching.')
+    setFocusStatus('Load a sim to enable click-to-query.')
+    setInteractionMode()
+    drawInteractionLayer()
+    updateSimControls()
+    updateTutorButtonState()
+  }
+
+  function readDesignDocInput() {
+    const raw = document.getElementById('design-doc').value.trim()
+    if (!raw) {
+      designDoc = null
+      updateTutorButtonState()
+      return true
+    }
+
+    try {
+      designDoc = JSON.parse(raw)
+      if (designDoc.renderer) {
+        document.getElementById('renderer-select').value = designDoc.renderer
+      }
+      activeSocraticStepId = designDoc.socratic_plan?.[0]?.id || null
+      updateTutorButtonState()
+      appendLog('designDoc:ok', { renderer: designDoc.renderer, concept: designDoc.concept })
+      return true
+    } catch (err) {
+      designDoc = null
+      updateTutorButtonState()
+      appendLog('designDoc:error', String(err))
+      return false
+    }
+  }
+
+  function formatParamValue(paramName, fallbackDefault, unit) {
+    const raw = paramValues[paramName]
+    const n = Number.isFinite(raw) ? raw : fallbackDefault
+    const precision = paramName === 'angle' ? 1 : 2
+    return `${Number(n).toFixed(precision)}${unit ? ` ${unit}` : ''}`
+  }
+
+  function setParamValueInUi(paramName, value) {
+    paramValues[paramName] = value
+    const slider = document.getElementById(`param-slider-${paramName}`)
+    const valueEl = document.getElementById(`param-value-${paramName}`)
+    if (slider) slider.value = String(value)
+    if (valueEl) {
+      const unit = valueEl.dataset.unit || ''
+      const precision = paramName === 'angle' ? 1 : 2
+      valueEl.textContent = `${Number(value).toFixed(precision)}${unit ? ` ${unit}` : ''}`
+    }
+  }
+
+  function isParamTarget(target) {
+    return Object.prototype.hasOwnProperty.call(paramValues, target)
+  }
+
+  function fallbackRegionPosition(index) {
+    return {
+      x: visualOverlay.clientWidth * 0.5,
+      y: visualOverlay.clientHeight * (0.4 + index * 0.09),
+    }
+  }
+
+  function getRegionPosition(region, index) {
+    const pos = regionPositions[region]
+    return pos || fallbackRegionPosition(index)
+  }
+
+  function updateRegionTracking() {
+    const hasRegionOverlay =
+      Array.from(highlightedTargets).some((target) => !isParamTarget(target)) ||
+      Object.keys(annotations).length > 0
+    const needsRegionTrackingForFocus = clickToQueryArmed || Boolean(selectedFocus)
+    const needsRegionTrackingForCannonDrag = shouldEnableCannonDrag() || cannonDragActive
+
+    iframe.contentWindow?.postMessage({
+      type: 'TRACK_REGIONS',
+      enabled: hasRegionOverlay || needsRegionTrackingForFocus || needsRegionTrackingForCannonDrag,
+    }, '*')
+  }
+
+  function renderVisualState() {
+    document.querySelectorAll('.param-control').forEach((el) => {
+      const name = el.dataset.paramName
+      el.classList.toggle('is-highlighted', highlightedTargets.has(name))
+      el.classList.toggle('is-locked', lockedParams.has(name))
+      const slider = document.getElementById(`param-slider-${name}`)
+      if (slider) slider.disabled = lockedParams.has(name)
+    })
+
+    visualOverlay.innerHTML = ''
+    Object.entries(annotations).forEach(([region, text], index) => {
+      const pos = getRegionPosition(region, index)
+      const card = document.createElement('div')
+      card.className = 'annotation-card'
+      card.style.left = `${pos.x}px`
+      card.style.top = `${pos.y}px`
+      const title = document.createElement('strong')
+      title.textContent = region
+      const body = document.createElement('span')
+      body.textContent = text
+      card.appendChild(title)
+      card.appendChild(body)
+      visualOverlay.appendChild(card)
+    })
+
+    if (selectedFocus) {
+      const pos = getRegionPosition(selectedFocus.region, 0)
+      const marker = document.createElement('div')
+      marker.className = 'region-focus'
+      marker.style.left = `${pos.x}px`
+      marker.style.top = `${pos.y}px`
+      marker.textContent = `focus: ${selectedFocus.region}`
+      visualOverlay.appendChild(marker)
+    }
+
+    drawInteractionLayer()
+    updateRegionTracking()
+    setInteractionMode()
+  }
+
+  function applyVisualToolCall(tc) {
+    switch (tc.toolName) {
+      case 'lock':
+        lockedParams.add(tc.input.element_id)
+        break
+      case 'unlock':
+        lockedParams.delete(tc.input.element_id)
+        break
+      case 'highlight':
+        highlightedTargets.add(tc.input.element_id)
+        break
+      case 'add_annotation':
+        annotations[tc.input.region] = tc.input.text
+        break
+      case 'clear_annotations':
+        Object.keys(annotations).forEach((region) => delete annotations[region])
+        break
+      case 'set_param':
+        setParamValueInUi(tc.input.name, tc.input.value)
+        break
+      case 'set_scene':
+        Object.entries(tc.input.config || {}).forEach(([name, value]) => setParamValueInUi(name, value))
+        break
+      case 'pause':
+      case 'play':
+        break
+    }
+    renderVisualState()
+  }
+
+  function renderParamControls(nextManifest) {
+    if (!nextManifest || nextManifest.params.length === 0) {
+      paramsRoot.textContent = 'No parameters in manifest.'
+      return
+    }
+
+    paramsRoot.innerHTML = ''
+    nextManifest.params.forEach((param) => {
+      paramValues[param.name] = param.default
+
+      const wrapper = document.createElement('div')
+      wrapper.className = 'param-control'
+      wrapper.dataset.paramName = param.name
+      wrapper.style.display = 'flex'
+      wrapper.style.flexDirection = 'column'
+      wrapper.style.gap = '6px'
+      wrapper.style.marginBottom = '10px'
+
+      const labelRow = document.createElement('div')
+      labelRow.style.display = 'flex'
+      labelRow.style.justifyContent = 'space-between'
+      labelRow.style.gap = '8px'
+
+      const labelEl = document.createElement('label')
+      labelEl.textContent = param.label || param.name
+
+      const valueEl = document.createElement('span')
+      valueEl.id = `param-value-${param.name}`
+      valueEl.dataset.unit = param.unit || ''
+      valueEl.style.fontSize = '11px'
+      valueEl.style.color = '#bdbdbd'
+      valueEl.textContent = formatParamValue(param.name, param.default, param.unit)
+
+      const slider = document.createElement('input')
+      slider.type = 'range'
+      slider.id = `param-slider-${param.name}`
+      slider.min = String(param.min)
+      slider.max = String(param.max)
+      slider.step = String((param.max - param.min) / 100 || 0.01)
+      slider.value = String(param.default)
+      slider.addEventListener('input', () => {
+        setParamValueInUi(param.name, Number(slider.value))
+      })
+      slider.addEventListener('change', () => {
+        iframe.contentWindow.postMessage({
+          type: 'AGENT_CMD',
+          action: 'set_param',
+          target: param.name,
+          value: Number(slider.value),
+        }, '*')
+      })
+
+      labelRow.appendChild(labelEl)
+      labelRow.appendChild(valueEl)
+      wrapper.appendChild(labelRow)
+      wrapper.appendChild(slider)
+      paramsRoot.appendChild(wrapper)
+    })
+
+    renderVisualState()
+  }
+
+  async function playWithElevenLabs(text) {
+    if (!text || !text.trim()) {
+      appendLog('tts:error', 'No tutor text available to speak')
+      return
+    }
+
+    appendLog('tts', 'calling /api/tts...')
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+      }),
+    })
+
+    if (!res.ok) {
+      const errorBody = await res.text()
+      appendLog('tts:error', { status: res.status, body: errorBody })
+      return
+    }
+
+    const audioBlob = await res.blob()
+    const audioEl = document.getElementById('tts-audio')
+    if (lastAudioUrl) URL.revokeObjectURL(lastAudioUrl)
+    lastAudioUrl = URL.createObjectURL(audioBlob)
+    audioEl.src = lastAudioUrl
+    await audioEl.play()
+    appendLog('tts:ok', `playing ${audioBlob.size} bytes`)
+  }
+
+  // ── Listen to iframe messages ──────────────────────────────────────────────
+
+  window.addEventListener('message', (e) => {
+    if (e.source !== iframe.contentWindow) return
+    const msg = e.data
+    if (!msg || !msg.type) return
+    if (msg.type !== 'REGION_POSITIONS') appendLog(msg.type, msg)
+
+    if (msg.type === 'MANIFEST') {
+      manifest = { params: msg.params, regions: msg.regions, events: msg.events, animates: !!msg.animates, episodic: !!msg.episodic }
+      simPaused = false
+      simPhase = msg.episodic ? 'idle' : 'active'
+      highlightedTargets.clear()
+      lockedParams.clear()
+      Object.keys(annotations).forEach((region) => delete annotations[region])
+      Object.keys(regionPositions).forEach((region) => delete regionPositions[region])
+      renderParamControls(manifest)
+      if (!activeSocraticStepId) {
+        activeSocraticStepId = designDoc?.socratic_plan?.[0]?.id || null
+      }
+      activateSocraticStep(activeSocraticStepId)
+      updateSimControls()
+      updateTutorButtonState()
+      fitInteractionLayer()
+      renderVisualState()
+    }
+
+    if (msg.type === 'SIM_PAUSED') {
+      simPaused = true
+      updateSimControls()
+      return
+    }
+
+    if (msg.type === 'SIM_RESUMED') {
+      simPaused = false
+      updateSimControls()
+      return
+    }
+
+    if (msg.type === 'SIM_PHASE') {
+      simPhase = msg.phase
+      if (msg.phase === 'active') simPaused = false
+      updateSimControls()
+      return
+    }
+
+    if (msg.type === 'REGION_POSITIONS') {
+      Object.entries(msg.regions || {}).forEach(([region, pos]) => {
+        if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+          regionPositions[region] = pos
+        } else {
+          delete regionPositions[region]
+        }
+      })
+      renderVisualState()
+      return
+    }
+
+    if (msg.type === 'PARAM_CHANGED') {
+      setParamValueInUi(msg.param, msg.to)
+      queueTutorEvent({
+        event: 'param_changed',
+        param: msg.param,
+        from: msg.from,
+        to: msg.to,
+        sim_state: msg.sim_state,
+        timestamp: Date.now(),
+      })
+      return
+    }
+
+    if (msg.type === 'SIM_EVENT') {
+      queueTutorEvent({
+        event: msg.event,
+        payload: msg.payload || {},
+        timestamp: Number.isFinite(msg.timestamp) ? msg.timestamp : Date.now(),
+      })
+    }
+  })
+
+  // ── Verification display ───────────────────────────────────────────────────
+
+  function renderVerificationReport(report) {
+    const card = document.getElementById('verification-card')
+    if (!report) {
+      card.className = 'verify-card pending'
+      card.innerHTML = '<span style="color:#555;">No verification data.</span>'
+      document.getElementById('btn-verify').disabled = true
+      return
+    }
+
+    const overall = report.passed ? 'passed' : 'failed'
+    card.className = `verify-card ${overall}`
+
+    const passedCount = report.checks.filter(c => c.passed).length
+    const totalCount = report.checks.length
+
+    let html = `<div class="verify-summary ${overall}">${report.passed ? '✓ VERIFIED' : '✗ FAILED'} — ${passedCount}/${totalCount} invariants passed</div>`
+
+    // Invariant checks
+    if (report.checks.length > 0) {
+      html += '<div style="margin-top:6px;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.04em;">Invariant Checks</div>'
+      for (const check of report.checks) {
+        const badge = check.passed ? 'passed' : 'failed'
+        html += `<div class="verify-check">
+          <span class="check-badge ${badge}">${check.passed ? 'PASS' : 'FAIL'}</span>
+          <span style="color:${check.passed ? '#bdbdbd' : '#fca5a5'}">${escapeHtml(check.message)}</span>
+        </div>`
+      }
+    }
+
+    // Probe results table
+    if (report.probeResults.length > 0) {
+      const allMetrics = [...new Set(report.probeResults.flatMap(pr => Object.keys(pr.metrics)))]
+      html += `<div style="margin-top:8px;">
+        <span class="section-toggle" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? '' : 'none'">
+          ▸ Probe Results (${report.probeResults.length} probes)
+        </span>
+        <div style="display:none;margin-top:4px;">
+          <table class="verify-probe-table">
+            <thead><tr>
+              <th>Probe</th>
+              ${allMetrics.map(m => `<th>${escapeHtml(m)}</th>`).join('')}
+            </tr></thead>
+            <tbody>
+              ${report.probeResults.map(pr => `<tr>
+                <td>${escapeHtml(pr.probeId)}</td>
+                ${allMetrics.map(m => pr.metrics[m] !== undefined
+                  ? `<td class="metric-val">${Number(pr.metrics[m]).toFixed(2)}</td>`
+                  : `<td class="no-metric">—</td>`
+                ).join('')}
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`
+    }
+
+    card.innerHTML = html
+    document.getElementById('btn-verify').disabled = !(designDoc && document.getElementById('sim-code').value.trim())
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+
+  function renderGenerationObs(res, data, elapsedMs, requestedTrace) {
+    const el = document.getElementById('generation-obs')
+    const ok = res.ok
+    el.className = 'generation-obs ' + (ok ? 'obs-ok' : 'obs-err')
+
+    if (!ok) {
+      const phase = data.phase || 'unknown'
+      const status = res.status
+      let html = `<div class="obs-line"><span class="obs-k">HTTP</span> <span class="obs-mono">${status}</span> · <span class="obs-k">${elapsedMs}ms</span></div>`
+      html += `<div class="obs-line"><span class="obs-k">phase</span> <span class="obs-mono">${escapeHtml(phase)}</span></div>`
+      html += `<div class="obs-line"><span class="obs-k">error</span> ${escapeHtml(data.error || JSON.stringify(data))}</div>`
+      if (Array.isArray(data.consistencyErrors) && data.consistencyErrors.length) {
+        html += `<div class="obs-line"><span class="obs-k">design-doc consistency</span></div>`
+        for (const e of data.consistencyErrors) {
+          html += `<div class="consistency-err"><span class="obs-mono">${escapeHtml(e.path)}</span> — ${escapeHtml(e.message)}</div>`
+        }
+      }
+      if (data.verification && typeof data.verification === 'object') {
+        html += `<div class="obs-line"><span class="obs-k">verification snapshot</span> passed=${data.verification.passed}</div>`
+      }
+      if (data.validationErrors && data.validationErrors.length) {
+        html += `<div class="obs-line"><span class="obs-k">static validation</span></div>`
+        for (const v of data.validationErrors) {
+          html += `<div class="consistency-err">${escapeHtml(v)}</div>`
+        }
+      }
+      if (data.generatedText) {
+        html += `<details class="obs-trace-wrap"><summary>generatedText (truncated)</summary><pre class="obs-trace-pre">${escapeHtml(String(data.generatedText).slice(0, 4000))}${String(data.generatedText).length > 4000 ? '\n…' : ''}</pre></details>`
+      }
+      el.innerHTML = html
+      return
+    }
+
+    const dd = data.designDoc
+    const ver = data.verification
+    const checks = ver && Array.isArray(ver.checks) ? ver.checks : []
+    const passedChecks = checks.filter(c => c.passed).length
+    const fromTpl = data.fromTemplate === true
+    let html = `<div class="obs-line"><span class="obs-k">HTTP</span> <span class="obs-mono">200</span> · <span class="obs-k">${elapsedMs}ms</span> · <span class="obs-k">Pass 2 calls</span> <span class="obs-mono">${data.retries ?? '?'}</span></div>`
+    html += `<div class="obs-line"><span class="obs-k">fromTemplate</span> <span class="obs-mono">${fromTpl}</span>`
+    if (dd) {
+      html += ` · <span class="obs-k">domain</span> <span class="obs-mono">${escapeHtml(dd.domain)}</span> · <span class="obs-k">renderer</span> <span class="obs-mono">${escapeHtml(dd.renderer)}</span> · <span class="obs-k">episodic</span> <span class="obs-mono">${dd.episodic}</span></div>`
+      html += `<div class="obs-line"><span class="obs-k">concept</span> ${escapeHtml(dd.concept || '')}</div>`
+      const probes = dd.verification && dd.verification.probes ? dd.verification.probes.length : 0
+      const invs = dd.verification && dd.verification.invariants ? dd.verification.invariants.length : 0
+      html += `<div class="obs-line"><span class="obs-k">verification plan</span> ${probes} probes · ${invs} invariants · <span class="obs-k">result</span> ${passedChecks}/${checks.length} checks passed</div>`
+    }
+    if (requestedTrace && !data.trace) {
+      html += `<div class="obs-line" style="color:#fbbf24;"><span class="obs-k">trace</span> not in response — enable header (checkbox) or set PRAXIO_DEBUG_GENERATION=1 on the server.</div>`
+    }
+    if (data.trace) {
+      const t = data.trace
+      const tid = t.templateId ? ` · <span class="obs-k">templateId</span> <span class="obs-mono">${escapeHtml(t.templateId)}</span>` : ''
+      html += `<div class="obs-line"><span class="obs-k">trace</span> staticRetries=${t.staticValidationRetries ?? '?'} · behaviorRounds=${t.behavioralVerificationRetries ?? '?'} · pass2Count=${t.pass2GenerationCount ?? '?'}${tid}</div>`
+      const attempts = Array.isArray(t.attempts) ? t.attempts : []
+      html += `<div class="obs-line"><span class="obs-k">attempts</span> ${attempts.length} steps</div>`
+      html += `<div class="obs-line" style="margin-top:8px;color:#a3a3a3;"><span class="obs-k">Pass 1</span> is the structured design doc (same as <em>design doc</em> textarea + API <code>designDoc</code>) — not a raw string in the trace.</div>`
+      html += `<div class="obs-line" style="color:#a3a3a3;"><span class="obs-k">Pass 2</span> sim code: final string is <em>sim code</em> textarea + API <code>simCode</code>. Each failed/succeeded Pass 2 try is below.</div>`
+      let p2i = 0
+      for (const a of attempts) {
+        if (a.phase === 'staticValidation' && a.pass2ModelOutput) {
+          p2i++
+          const o = a.pass2ModelOutput
+          const okb = a.ok ? 'ok' : 'fail'
+          const tr = o.truncated ? ' (truncated in trace; see full in textarea if this attempt won)' : ''
+          html += `<details class="obs-trace-wrap" style="margin-top:4px;"><summary>Pass 2 #${p2i} static validation — ${okb} · ${o.charCount} chars${tr}</summary><pre class="obs-trace-pre">${escapeHtml(o.text || '')}</pre></details>`
+        }
+      }
+      html += `<details class="obs-trace-wrap" style="margin-top:8px;"><summary>Full generation trace (JSON) — includes same Pass 2 text in <code>pass2ModelOutput</code></summary><pre class="obs-trace-pre">${escapeHtml(JSON.stringify(data.trace, null, 2))}</pre></details>`
+    }
+    el.innerHTML = html
+  }
+
+  document.getElementById('btn-verify').addEventListener('click', async () => {
+    const code = document.getElementById('sim-code').value.trim()
+    if (!code || !designDoc) return
+
+    const card = document.getElementById('verification-card')
+    card.className = 'verify-card pending'
+    card.innerHTML = '<span style="color:#888;">Running verification...</span>'
+    document.getElementById('btn-verify').disabled = true
+
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ simCode: code, designDoc }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        card.className = 'verify-card failed'
+        card.innerHTML = `<span style="color:#f87171;">Verification error: ${escapeHtml(data.error || 'Unknown error')}</span>`
+        appendLog('verify:error', data)
+        return
+      }
+      appendLog('verify:report', { passed: data.passed, checks: data.checks?.length })
+      renderVerificationReport(data)
+    } catch (err) {
+      card.className = 'verify-card failed'
+      card.innerHTML = `<span style="color:#f87171;">Request failed: ${escapeHtml(String(err))}</span>`
+    } finally {
+      document.getElementById('btn-verify').disabled = false
+    }
+  })
+
+  // ── Generate ───────────────────────────────────────────────────────────────
+
+  document.getElementById('btn-generate').addEventListener('click', async () => {
+    const concept = document.getElementById('concept').value.trim()
+    if (!concept) return
+    const requestedTrace = document.getElementById('chk-debug-trace').checked
+    const obs = document.getElementById('generation-obs')
+    obs.className = 'generation-obs obs-pending'
+    obs.innerHTML = '<div class="obs-line"><span class="obs-k">Pipeline:</span> generating… (Pass 1 → consistency → Pass 2 → verify)</div>'
+
+    const btn = document.getElementById('btn-generate')
+    btn.disabled = true
+    appendLog('generate', 'calling /api/generate...' + (requestedTrace ? ' (X-Praxio-Debug: 1)' : ''))
+
+    const headers = { 'Content-Type': 'application/json' }
+    if (requestedTrace) headers['X-Praxio-Debug'] = '1'
+
+    const t0 = performance.now()
+    let res
+    let data
+    try {
+      res = await fetch('/api/generate', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ concept }),
+      })
+      data = await res.json()
+    } catch (err) {
+      btn.disabled = false
+      const elapsed = Math.round(performance.now() - t0)
+      obs.className = 'generation-obs obs-err'
+      obs.innerHTML = `<div class="obs-line">Network error after ${elapsed}ms: ${escapeHtml(String(err))}</div>`
+      appendLog('generate:fetch_error', String(err))
+      return
+    }
+    const elapsed = Math.round(performance.now() - t0)
+    renderGenerationObs(res, data, elapsed, requestedTrace)
+    btn.disabled = false
+
+    if (!res.ok) {
+      appendLog('generate:error', data)
+      return
+    }
+
+    appendLog('generate:ok', { retries: data.retries, fromTemplate: data.fromTemplate, renderer: data.designDoc.renderer, trace: data.trace || null })
+    resetLoadedSession()
+    designDoc = data.designDoc
+    activeSocraticStepId = designDoc.socratic_plan?.[0]?.id || null
+    document.getElementById('sim-code').value = data.simCode
+    document.getElementById('design-doc').value = JSON.stringify(data.designDoc, null, 2)
+    renderVerificationReport(data.verification || null)
+    updateTutorButtonState()
+
+    // Swap renderer if needed
+    const r = data.designDoc.renderer
+    iframe.src = `/iframe/${r}.html`
+    iframe.onload = () => {
+      iframe.contentWindow.postMessage({ type: 'LOAD_SIM', code: data.simCode }, '*')
+    }
+  })
+
+  // ── Load directly ──────────────────────────────────────────────────────────
+
+  document.getElementById('btn-load-direct').addEventListener('click', () => {
+    const code = document.getElementById('sim-code').value.trim()
+    if (!code) return
+    if (!readDesignDocInput()) return
+    resetLoadedSession()
+    activeSocraticStepId = designDoc?.socratic_plan?.[0]?.id || null
+    renderVerificationReport(null)
+    document.getElementById('btn-verify').disabled = !(designDoc && code)
+
+    const r = designDoc?.renderer || document.getElementById('renderer-select').value
+    document.getElementById('renderer-select').value = r
+    iframe.src = `/iframe/${r}.html`
+    iframe.onload = () => {
+      iframe.contentWindow.postMessage({ type: 'LOAD_SIM', code }, '*')
+    }
+  })
+
+  document.getElementById('socratic-step-select').addEventListener('change', (event) => {
+    activateSocraticStep(event.target.value)
+  })
+
+  document.getElementById('btn-step-prev').addEventListener('click', () => {
+    const plan = getSocraticPlan()
+    const index = stepIndexById(activeSocraticStepId)
+    if (index > 0) activateSocraticStep(plan[index - 1].id)
+  })
+
+  document.getElementById('btn-step-next').addEventListener('click', () => {
+    const plan = getSocraticPlan()
+    const index = stepIndexById(activeSocraticStepId)
+    if (index >= 0 && index < plan.length - 1) activateSocraticStep(plan[index + 1].id)
+  })
+
+  // ── Prediction + hypothesis + click-to-query ───────────────────────────────
+
+  document.getElementById('btn-sketch-toggle').addEventListener('click', () => {
+    if (!manifest || !designDoc) return
+    sketchModeActive = !sketchModeActive
+    sketchDrawingActive = false
+    if (sketchModeActive) {
+      clickToQueryArmed = false
+      setSketchStatus('Sketch mode enabled. Draw your expected trajectory on the canvas.')
+    } else {
+      setSketchStatus('Sketch mode stopped.')
+    }
+    setInteractionMode()
+    updateRegionTracking()
+  })
+
+  document.getElementById('btn-sketch-clear').addEventListener('click', () => {
+    clearPredictionSketch()
+  })
+
+  document.getElementById('btn-sketch-submit').addEventListener('click', () => {
+    if (predictionSketchPoints.length < 2) return
+    queueTutorEvent({
+      event: 'prediction_sketch_submitted',
+      payload: {
+        points: predictionSketchPoints.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
+        coordinate_space: 'iframe_css_pixels',
+      },
+      timestamp: Date.now(),
+    })
+    setSketchStatus(`Submitted prediction sketch with ${predictionSketchPoints.length} points.`)
+  })
+
+  document.getElementById('btn-hypothesis-submit').addEventListener('click', () => {
+    const metric = document.getElementById('hypothesis-metric').value
+    const valueRaw = Number(document.getElementById('hypothesis-value').value)
+    const unit = document.getElementById('hypothesis-unit').value.trim()
+    if (!Number.isFinite(valueRaw)) {
+      appendLog('hypothesis:error', 'Enter a numeric value before submitting.')
+      return
+    }
+    queueTutorEvent({
+      event: 'hypothesis_submitted',
+      payload: {
+        metric,
+        value: valueRaw,
+        unit: unit || undefined,
+      },
+      timestamp: Date.now(),
+    })
+    setSketchStatus(`Hypothesis submitted: ${metric} = ${valueRaw}${unit ? ` ${unit}` : ''}.`)
+  })
+
+  document.getElementById('btn-focus-arm').addEventListener('click', () => {
+    if (!manifest || manifest.regions.length === 0) {
+      setFocusStatus('No regions are available yet for click-to-query.')
+      return
+    }
+    clickToQueryArmed = true
+    sketchModeActive = false
+    setInteractionMode()
+    updateRegionTracking()
+    setFocusStatus('Click anywhere on the simulation to focus the tutor.')
+  })
+
+  interactionLayer.addEventListener('pointerdown', (event) => {
+    const rect = interactionLayer.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+
+    if (sketchModeActive) {
+      sketchDrawingActive = true
+      predictionSketchPoints.push({ x, y })
+      drawInteractionLayer()
+      document.getElementById('btn-sketch-submit').disabled = predictionSketchPoints.length < 2
+      return
+    }
+
+    if (clickToQueryArmed) {
+      const region = nearestRegionToPoint(x, y)
+      if (!region) {
+        setFocusStatus('No region available at the moment. Try again after launch.')
+      } else {
+        selectedFocus = { region, x, y }
+        queueTutorEvent({
+          event: 'focus_selected',
+          payload: {
+            region,
+            x: Math.round(x),
+            y: Math.round(y),
+          },
+          timestamp: Date.now(),
+        })
+        setFocusStatus(`Focus selected: ${region}.`)
+      }
+      clickToQueryArmed = false
+      setInteractionMode()
+      renderVisualState()
+      return
+    }
+
+    if (isNearCannonDragZone(x, y)) {
+      cannonDragActive = true
+      cannonDragPointerId = event.pointerId
+      interactionLayer.setPointerCapture(event.pointerId)
+      setAngleFromPointer(x, y)
+      setInteractionMode()
+    }
+  })
+
+  interactionLayer.addEventListener('pointermove', (event) => {
+    const rect = interactionLayer.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+
+    if (sketchModeActive && sketchDrawingActive) {
+      predictionSketchPoints.push({ x, y })
+      drawInteractionLayer()
+      document.getElementById('btn-sketch-submit').disabled = predictionSketchPoints.length < 2
+      return
+    }
+
+    if (cannonDragActive && event.pointerId === cannonDragPointerId) {
+      setAngleFromPointer(x, y)
+      return
+    }
+
+    if (shouldEnableCannonDrag()) {
+      interactionLayer.style.cursor = isNearCannonDragZone(x, y) ? 'grab' : 'default'
+    }
+  })
+
+  interactionLayer.addEventListener('pointerup', (event) => {
+    sketchDrawingActive = false
+    if (cannonDragActive && event.pointerId === cannonDragPointerId) {
+      cannonDragActive = false
+      cannonDragPointerId = null
+      if (interactionLayer.hasPointerCapture(event.pointerId)) {
+        interactionLayer.releasePointerCapture(event.pointerId)
+      }
+      setInteractionMode()
+    }
+  })
+  interactionLayer.addEventListener('pointerleave', (event) => {
+    sketchDrawingActive = false
+    if (cannonDragActive && event.pointerId === cannonDragPointerId) {
+      cannonDragActive = false
+      cannonDragPointerId = null
+      if (interactionLayer.hasPointerCapture(event.pointerId)) {
+        interactionLayer.releasePointerCapture(event.pointerId)
+      }
+      setInteractionMode()
+    }
+  })
+  interactionLayer.addEventListener('pointercancel', (event) => {
+    if (cannonDragActive && event.pointerId === cannonDragPointerId) {
+      cannonDragActive = false
+      cannonDragPointerId = null
+      if (interactionLayer.hasPointerCapture(event.pointerId)) {
+        interactionLayer.releasePointerCapture(event.pointerId)
+      }
+      setInteractionMode()
+    }
+  })
+
+  window.addEventListener('resize', fitInteractionLayer)
+  fitInteractionLayer()
+  setInteractionMode()
+
+  // ── Tutor stage ────────────────────────────────────────────────────────────
+
+  document.getElementById('btn-stage').addEventListener('click', async () => {
+    if (!manifest || !designDoc) return
+    const utterance = document.getElementById('utterance').value.trim()
+    const events = [...pendingEvents]
+    pendingEvents = []
+
+    const body = {
+      messages: [...messages, { role: 'user', content: utterance }],
+      pendingEvents: events,
+      manifest,
+      designDoc,
+      sessionId: 'test',
+      activeSocraticStepId,
+    }
+
+    appendLog('stage', 'calling /api/tutor/stage...')
+    const res = await fetch('/api/tutor/stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    appendLog('stage:toolCalls', data.toolCalls)
+
+    // Apply tool calls to iframe
+    for (const tc of data.toolCalls) {
+      applyVisualToolCall(tc)
+      const cmd = toolCallToAgentCmd(tc)
+      if (cmd) iframe.contentWindow.postMessage(cmd, '*')
+    }
+
+    // Call speak
+    appendLog('speak', 'calling /api/tutor/speak...')
+    const speakRes = await fetch('/api/tutor/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, appliedToolCalls: data.toolCalls.map(tc => ({ ...tc, result: null })) }),
+    })
+
+    let tutorText = ''
+    const reader = speakRes.body.getReader()
+    const decoder = new TextDecoder()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      tutorText += decoder.decode(value)
+    }
+    appendLog('speak:text', tutorText)
+    lastTutorText = tutorText
+    document.getElementById('btn-tts-play').disabled = !lastTutorText.trim()
+    if (ttsAutoPlayEnabled()) {
+      await playWithElevenLabs(lastTutorText)
+    }
+    messages = [...messages, { role: 'user', content: utterance }, { role: 'assistant', content: tutorText }]
+  })
+
+  document.getElementById('btn-tts-play').addEventListener('click', async () => {
+    await playWithElevenLabs(lastTutorText)
+  })
+
+  document.getElementById('btn-launch').addEventListener('click', () => {
+    if (!manifest?.episodic) return
+    iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'launch' }, '*')
+  })
+
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    if (!manifest?.episodic) return
+    iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'reset' }, '*')
+    simPhase = 'idle'
+    updateSimControls()
+  })
+
+  document.getElementById('btn-pause').addEventListener('click', () => {
+    if (!manifest?.animates) return
+    iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'pause' }, '*')
+  })
+
+  document.getElementById('btn-play').addEventListener('click', () => {
+    if (!manifest?.animates) return
+    iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'play' }, '*')
+  })
+
+  // ── Presets ────────────────────────────────────────────────────────────────
+
+  document.getElementById('btn-load-preset').addEventListener('click', async () => {
+    const key = document.getElementById('preset-select').value
+    const base = `/presets/${key}`
+    let code, docRaw
+    try {
+      const [codeRes, docRes] = await Promise.all([
+        fetch(`${base}/sim.js`),
+        fetch(`${base}/design-doc.json`)
+      ])
+      if (!codeRes.ok || !docRes.ok) {
+        appendLog('preset:error', `Failed to load preset "${key}" (${codeRes.status} / ${docRes.status})`)
+        return
+      }
+      code = (await codeRes.text()).trim()
+      docRaw = (await docRes.text()).trim()
+    } catch (e) {
+      appendLog('preset:error', String(e))
+      return
+    }
+
+    document.getElementById('sim-code').value = code
+    document.getElementById('design-doc').value = docRaw
+
+    if (!readDesignDocInput()) return
+    resetLoadedSession()
+    activeSocraticStepId = designDoc?.socratic_plan?.[0]?.id || null
+    renderVerificationReport(null)
+    document.getElementById('btn-verify').disabled = !(designDoc && code)
+
+    const r = designDoc?.renderer || document.getElementById('renderer-select').value
+    document.getElementById('renderer-select').value = r
+    iframe.src = `/iframe/${r}.html`
+    iframe.onload = () => {
+      iframe.contentWindow.postMessage({ type: 'LOAD_SIM', code }, '*')
+    }
+    appendLog('preset', `Loaded preset "${key}"`)
+  })
+
+  function toolCallToAgentCmd(tc) {
+    switch (tc.toolName) {
+      case 'lock':      return { type: 'AGENT_CMD', action: 'lock',      target: tc.input.element_id }
+      case 'unlock':    return { type: 'AGENT_CMD', action: 'unlock',    target: tc.input.element_id }
+      case 'highlight': return { type: 'AGENT_CMD', action: 'highlight', target: tc.input.element_id }
+      case 'set_param': return { type: 'AGENT_CMD', action: 'set_param', target: tc.input.name, value: tc.input.value }
+      case 'checkpoint':return { type: 'AGENT_CMD', action: 'checkpoint' }
+      case 'restore':   return { type: 'AGENT_CMD', action: 'restore',   id: tc.input.id }
+      case 'add_annotation': return { type: 'AGENT_CMD', action: 'annotate', region: tc.input.region, text: tc.input.text }
+      case 'clear_annotations': return { type: 'AGENT_CMD', action: 'clear_annotations' }
+      case 'trigger_event': return { type: 'AGENT_CMD', action: 'trigger_event', eventType: tc.input.type }
+      case 'set_scene': return { type: 'AGENT_CMD', action: 'set_scene', config: tc.input.config }
+      case 'pause':     return { type: 'AGENT_CMD', action: 'pause' }
+      case 'play':      return { type: 'AGENT_CMD', action: 'play' }
+      default: return null
+    }
+  }
+</script>
+</body>
+</html>

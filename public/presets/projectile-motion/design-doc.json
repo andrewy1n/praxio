@@ -1,0 +1,123 @@
+{
+  "concept": "projectile motion",
+  "domain": "physics",
+  "renderer": "p5",
+  "episodic": true,
+  "params": [
+    {
+      "name": "angle",
+      "range": [5, 85],
+      "default": 45,
+      "label": "Launch Angle",
+      "unit": "°"
+    },
+    {
+      "name": "speed",
+      "range": [5, 50],
+      "default": 25,
+      "label": "Initial Speed",
+      "unit": "m/s"
+    }
+  ],
+  "governing_equations": [
+    "Horizontal range R = v \\cos(\\theta) \\, T",
+    "Time of flight T = 2 v \\sin(\\theta) / g",
+    "Complementary angles \\theta and (90^\\circ - \\theta) yield the same range for a given v"
+  ],
+  "emit_events": ["launched", "landed"],
+  "register_regions": ["launch_point", "peak_trajectory", "landing_point"],
+  "initial_staging": {
+    "locked": ["angle", "speed"],
+    "highlighted": ["angle"]
+  },
+  "socratic_plan": [
+    {
+      "id": "sketch_trajectory",
+      "question": "Before we launch anything — draw on the canvas where you think the ball will go. Start from the cannon and trace the path you expect it to follow.",
+      "learning_goal": "Student externalises their mental model of projectile motion before observing it, revealing misconceptions about arc shape or landing point",
+      "exit_condition": "Student submits a sketch",
+      "interaction": { "kind": "prediction_sketch" },
+      "staging": { "lock": ["angle", "speed"], "highlight": ["angle"] }
+    },
+    {
+      "id": "explore_angle",
+      "question": "What do you think will happen to the range if you increase the launch angle?",
+      "learning_goal": "Student predicts the angle-range relationship before observing it",
+      "exit_condition": "Student makes a prediction or states uncertainty",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "unlock": ["angle"], "highlight": ["angle"], "lock": ["speed"] }
+    },
+    {
+      "id": "predict_max_range",
+      "question": "At what angle do you think the ball will travel the farthest? Make a guess.",
+      "learning_goal": "Student forms a hypothesis about the optimal launch angle",
+      "exit_condition": "Student gives a numeric guess for the optimal angle",
+      "interaction": { "kind": "numeric_hypothesis", "metric": "angle", "unit": "°" },
+      "staging": { "unlock": ["angle", "speed"], "highlight": ["angle", "speed"] }
+    },
+    {
+      "id": "observe_symmetry",
+      "question": "Try 30°, then try 60°. What do you notice about the ranges?",
+      "learning_goal": "Student discovers the complementary-angle symmetry empirically",
+      "exit_condition": "Student notices the ranges are equal or nearly equal",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "set_params": { "angle": 30 }, "highlight": ["angle", "speed"] }
+    },
+    {
+      "id": "explain_symmetry",
+      "question": "Why would 30° and 60° give the same range? What is the same and what is different between those two flights?",
+      "learning_goal": "Student reasons about the horizontal vs vertical velocity trade-off",
+      "exit_condition": "Student connects the symmetry to the velocity component relationship",
+      "interaction": { "kind": "verbal_response" },
+      "staging": {
+        "annotate": [
+          { "region": "peak_trajectory", "text": "Max height driven by vertical speed" },
+          { "region": "landing_point", "text": "Range = horizontal speed × flight time" }
+        ]
+      }
+    }
+  ],
+  "verification": {
+    "summary": "Complementary angles 30° and 60° share range; 45° maximizes range at fixed v; time of flight rises with launch angle below 90°.",
+    "probes": [
+      {
+        "id": "symmetry_30",
+        "description": "30° launch at 25 m/s — complementary pair leg",
+        "params": { "angle": 30, "speed": 25 },
+        "expected_metrics": ["range_m", "time_of_flight_s", "angle"]
+      },
+      {
+        "id": "symmetry_60",
+        "description": "60° launch at 25 m/s — complementary pair leg",
+        "params": { "angle": 60, "speed": 25 },
+        "expected_metrics": ["range_m", "time_of_flight_s", "angle"]
+      },
+      {
+        "id": "optimal_45",
+        "description": "45° launch at 25 m/s — near-maximum range check",
+        "params": { "angle": 45, "speed": 25 },
+        "expected_metrics": ["range_m", "time_of_flight_s", "angle"]
+      }
+    ],
+    "invariants": [
+      {
+        "kind": "approximately_equal",
+        "id": "complementary_range_symmetry",
+        "description": "30° and 60° landings should report nearly the same range (complementary-angle symmetry).",
+        "left_probe": "symmetry_30",
+        "right_probe": "symmetry_60",
+        "metric": "range_m",
+        "tolerance_percent": 4
+      },
+      {
+        "kind": "near_expected",
+        "id": "range_at_45_deg",
+        "description": "At 45° and 25 m/s, horizontal range should match v²/g.",
+        "probe": "optimal_45",
+        "metric": "range_m",
+        "expected": 63.8,
+        "tolerance_percent": 4
+      }
+    ]
+  }
+}

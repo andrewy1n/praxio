@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Praxio</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:oklch(13% 0.05 272);--bg2:oklch(17% 0.052 272);--bg3:oklch(21% 0.052 272);
+  --sur:rgba(255,255,255,0.04);--sur2:rgba(255,255,255,0.07);
+  --bdr:rgba(255,255,255,0.09);--bdr2:rgba(255,255,255,0.17);
+  --txt:#ede9f5;--txt2:rgba(237,233,245,0.52);--txt3:rgba(237,233,245,0.22);
+  --acc:oklch(70% 0.19 28);--acc-d:oklch(70% 0.19 28 / 0.14);
+  --acc-g:oklch(70% 0.19 28 / 0.26);--acc-b:oklch(40% 0.12 28);
+  --vio:oklch(70% 0.17 295);--vio-d:oklch(70% 0.17 295 / 0.14);
+  --amb:oklch(74% 0.14 72);--amb-d:oklch(74% 0.14 72 / 0.14);
+  --red:oklch(62% 0.18 18);
+  --fd:'Outfit',sans-serif;--fu:'Plus Jakarta Sans',sans-serif;--fm:'DM Mono',monospace;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:var(--fu);}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes scanline{0%{transform:translateY(-100%)}100%{transform:translateY(100vh)}}
+@keyframes pulse{0%,100%{opacity:0.6;transform:scale(1)}50%{opacity:1;transform:scale(1.04)}}
+@keyframes wv1{0%,100%{transform:scaleY(0.3)}50%{transform:scaleY(1)}}
+@keyframes wv2{0%,100%{transform:scaleY(1)}50%{transform:scaleY(0.25)}}
+@keyframes wv3{0%,33%,100%{transform:scaleY(0.6)}66%{transform:scaleY(1)}}
+@keyframes wv4{0%,100%{transform:scaleY(0.4)}40%{transform:scaleY(0.9)}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 var(--acc-g)}50%{box-shadow:0 0 0 6px var(--acc-g)}}
+@keyframes dotBlink{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes progressBar{from{width:0}to{width:100%}}
+
+.wu{animation:fadeUp 0.45s ease both;}
+.wu1{animation-delay:0.05s}.wu2{animation-delay:0.12s}.wu3{animation-delay:0.22s}.wu4{animation-delay:0.35s}.wu5{animation-delay:0.5s}
+
+.wv-bar{display:inline-block;width:3px;border-radius:2px;transform-origin:center;background:var(--acc);}
+.wv-bar.s .wv-b0{animation:wv1 0.6s ease-in-out infinite}
+.wv-bar.s .wv-b1{animation:wv2 0.7s ease-in-out infinite 0.1s}
+.wv-bar.s .wv-b2{animation:wv3 0.5s ease-in-out infinite 0.05s}
+.wv-bar.s .wv-b3{animation:wv1 0.8s ease-in-out infinite 0.2s}
+.wv-bar.s .wv-b4{animation:wv4 0.65s ease-in-out infinite 0.15s}
+
+/* Subtle noise texture overlay */
+body::after{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");pointer-events:none;z-index:9999;opacity:0.4;}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px;background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── LogoMark ──────────────────────────────────────────────────────────────────
+function LogoMark({ size = 28 }) {
+  const s = size;
+  return (
+    <svg width={s} height={s} viewBox="0 0 28 28" fill="none" style={{flexShrink:0}}>
+      <defs>
+        <linearGradient id="lm-g" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="oklch(70% 0.19 28)"/>
+          <stop offset="100%" stopColor="oklch(70% 0.17 295)"/>
+        </linearGradient>
+      </defs>
+      {/* Ghost — rotated back */}
+      <rect x="5" y="5" width="18" height="18" rx="5.5"
+        stroke="url(#lm-g)" strokeWidth="1.5" strokeOpacity="0.3"
+        transform="rotate(-18 14 14)"/>
+      {/* Main shape — slightly rotated */}
+      <rect x="5" y="5" width="18" height="18" rx="5.5"
+        stroke="url(#lm-g)" strokeWidth="2"
+        transform="rotate(8 14 14)"/>
+      {/* Center accent dot */}
+      <circle cx="14" cy="14" r="2.2" fill="url(#lm-g)"/>
+    </svg>
+  );
+}
+
+// ── Physics ─────────────────────────────────────────────────────────────────
+function computeArc(deg, v0, g=9.8, steps=90) {
+  const a = deg * Math.PI / 180;
+  const T = 2 * v0 * Math.sin(a) / g;
+  const pts = Array.from({length: steps+1}, (_,i) => {
+    const t = (i/steps)*T;
+    return { x: v0*Math.cos(a)*t, y: v0*Math.sin(a)*t - 0.5*g*t*t };
+  });
+  return {
+    pts, T,
+    range: v0**2 * Math.sin(2*a) / g,
+    maxH: (v0*Math.sin(a))**2 / (2*g),
+    apex: { x: v0**2*Math.sin(2*a)/(2*g), y: (v0*Math.sin(a))**2/(2*g) }
+  };
+}
+
+// ── Waveform ─────────────────────────────────────────────────────────────────
+const waveDefs = [
+  {h:10,a:'wv1',d:'0s'},{h:22,a:'wv2',d:'0.1s'},{h:32,a:'wv3',d:'0.05s'},
+  {h:18,a:'wv1',d:'0.2s'},{h:28,a:'wv4',d:'0.12s'},{h:14,a:'wv2',d:'0.08s'},
+  {h:26,a:'wv3',d:'0.18s'},{h:20,a:'wv1',d:'0.25s'},{h:30,a:'wv4',d:'0.06s'},
+  {h:16,a:'wv2',d:'0.15s'},{h:24,a:'wv3',d:'0.22s'},{h:12,a:'wv1',d:'0.3s'}
+];
+function Waveform({ speaking, listening, color='var(--acc)', height=32, style={} }) {
+  const active = speaking || listening;
+  const c = listening ? 'var(--red)' : color;
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:2.5,height,...style}}>
+      {waveDefs.map((w,i) => (
+        <span key={i} style={{
+          display:'inline-block',width:3,borderRadius:2,transformOrigin:'center',
+          background: c, opacity: active ? 1 : 0.3,
+          height: active ? w.h : 4,
+          animation: active ? `${w.a} ${0.5+i*0.04}s ease-in-out infinite ${w.d}` : 'none',
+          transition:'height 0.3s ease, opacity 0.3s ease'
+        }}/>
+      ))}
+    </div>
+  );
+}
+
+// ── SimCanvas ────────────────────────────────────────────────────────────────
+const VW = 1400, VH = 560;
+const OX = 90, OY = 490;
+const SCALE = 9.2;
+function sv(px, py) { return { x: OX + px*SCALE, y: OY - py*SCALE }; }
+
+function SimCanvas({ angle, velocity, showAnnotation, tutorSpeaking }) {
+  const arc = computeArc(angle, velocity);
+  const rafRef = useRef(null);
+  const startRef = useRef(null);
+  const [ballFrac, setBallFrac] = useState(0);
+  const [trailFrac, setTrailFrac] = useState(0);
+
+  useEffect(() => {
+    startRef.current = null;
+    setBallFrac(0);
+    setTrailFrac(0);
+    const dur = Math.max(arc.T * 900, 1800);
+    const trailDur = 600;
+
+    function tick(ts) {
+      if (!startRef.current) startRef.current = ts;
+      const el = ts - startRef.current;
+      const tf = Math.min(el / trailDur, 1);
+      const bf = Math.min(el / dur, 1);
+      setTrailFrac(tf);
+      setBallFrac(bf);
+      if (bf < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setTimeout(() => { startRef.current = null; rafRef.current = requestAnimationFrame(tick); }, 1200);
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [angle, velocity]);
+
+  const visiblePts = arc.pts.slice(0, Math.max(2, Math.round(trailFrac * arc.pts.length)));
+  const pathD = visiblePts.map((p,i) => { const {x,y} = sv(p.x,p.y); return `${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`; }).join('');
+  const ghostD = arc.pts.map((p,i) => { const {x,y} = sv(p.x,p.y); return `${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`; }).join('');
+  const ballIdx = Math.round(ballFrac * (arc.pts.length-1));
+  const bp = arc.pts[ballIdx] || arc.pts[arc.pts.length-1];
+  const bsv = sv(bp.x, bp.y);
+  const apSV = sv(arc.apex.x, arc.apex.y);
+  const landSV = sv(arc.range, 0);
+
+  // Grid
+  const gridX = [], gridY = [];
+  for (let x=0; x<=130; x+=10) {
+    const sx = sv(x,0).x;
+    gridX.push(<g key={x}>
+      <line x1={sx} y1={60} x2={sx} y2={OY} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+      {x>0&&<text x={sx} y={OY+18} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="middle" fontFamily="Space Grotesk">{x}m</text>}
+    </g>);
+  }
+  for (let y=0; y<=30; y+=5) {
+    const sy = sv(0,y).y;
+    gridY.push(<g key={y}>
+      <line x1={60} y1={sy} x2={VW-30} y2={sy} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+      {y>0&&<text x={56} y={sy+4} fill="rgba(255,255,255,0.2)" fontSize="10" textAnchor="end" fontFamily="Space Grotesk">{y}m</text>}
+    </g>);
+  }
+
+  return (
+    <svg width="100%" height="100%" viewBox={`0 0 ${VW} ${VH}`} style={{display:'block',background:'#060604'}}>
+      {/* Ambient glow at origin */}
+
+
+      {/* Grid */}
+      {gridX}{gridY}
+
+      {/* Ground */}
+      <line x1={OX} y1={OY} x2={VW-30} y2={OY} stroke="rgba(255,255,255,0.12)" strokeWidth="1.5"/>
+      {/* Y axis */}
+      <line x1={OX} y1={70} x2={OX} y2={OY} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+
+      {/* Ghost arc */}
+      <path d={ghostD} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="1.5" strokeDasharray="4,4"/>
+
+      {/* Trajectory — clean diagram line */}
+      {pathD && <path d={pathD} fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round"/>}
+
+      {/* Range marker */}
+      <line x1={landSV.x} y1={OY-4} x2={landSV.x} y2={OY+8} stroke="rgba(255,255,255,0.5)" strokeWidth="1.5"/>
+      <text x={landSV.x} y={OY+22} fill="rgba(255,255,255,0.45)" fontSize="11" textAnchor="middle" fontFamily="DM Mono">
+        R = {arc.range.toFixed(1)} m
+      </text>
+
+      {/* Apex drop line */}
+      <line x1={apSV.x} y1={apSV.y} x2={apSV.x} y2={OY} stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3,3"/>
+
+      {/* Annotation at apex */}
+      {showAnnotation && trailFrac >= 1 && (
+        <g style={{animation:'fadeIn 0.5s ease forwards'}}>
+          <line x1={apSV.x} y1={apSV.y-10} x2={apSV.x+30} y2={apSV.y-52} stroke="var(--amb)" strokeWidth="1.5" strokeDasharray="3,2" strokeOpacity="0.8"/>
+          <rect x={apSV.x+28} y={apSV.y-68} width={208} height={28} rx="4"
+            fill="rgba(20,16,0,0.85)" stroke="var(--amb)" strokeWidth="1.5" strokeOpacity="0.7"/>
+          <text x={apSV.x+132} y={apSV.y-49} fill="var(--amb)" fontSize="12" textAnchor="middle" fontFamily="DM Mono">
+            What are the velocity components here?
+          </text>
+          <circle cx={apSV.x} cy={apSV.y} r="5" fill="none" stroke="var(--amb)" strokeWidth="1.5" strokeOpacity="0.8"/>
+          <circle cx={apSV.x} cy={apSV.y} r="10" fill="var(--amb)" fillOpacity="0.08"/>
+        </g>
+      )}
+
+      {/* Landing annotation */}
+      {showAnnotation && trailFrac >= 1 && (
+        <g style={{animation:'fadeIn 0.5s ease 0.3s forwards', opacity:0}}>
+          <rect x={landSV.x-56} y={OY+28} width={112} height={24} rx="4"
+            fill="rgba(20,16,0,0.85)" stroke="var(--amb)" strokeWidth="1" strokeOpacity="0.5"/>
+          <text x={landSV.x} y={OY+44} fill="var(--amb)" fontSize="11" textAnchor="middle" fontFamily="DM Mono">Peak range. Why 45°?</text>
+        </g>
+      )}
+
+      {/* Cannon body */}
+      <g transform={`translate(${OX},${OY})`}>
+        <circle r="10" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.35)" strokeWidth="1.5"/>
+        <rect x="-5" y="-4" width="22" height="8" rx="3"
+          fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"
+          transform={`rotate(-${angle})`}/>
+      </g>
+
+      {/* Ball — solid, no bloom */}
+      {ballFrac > 0 && <circle cx={bsv.x} cy={bsv.y} r="5" fill="var(--acc)"/>}
+
+      {/* Live readouts */}
+      <text x={VW-16} y={80} fill="rgba(255,255,255,0.25)" fontSize="11" textAnchor="end" fontFamily="DM Mono">
+        θ = {angle}° · v₀ = {velocity} m/s · g = 9.8 m/s²
+      </text>
+      <text x={VW-16} y={96} fill="rgba(255,255,255,0.18)" fontSize="11" textAnchor="end" fontFamily="DM Mono">
+        H_max = {arc.maxH.toFixed(1)} m · T = {arc.T.toFixed(2)} s
+      </text>
+    </svg>
+  );
+}
+
+// ── ParamPanel ────────────────────────────────────────────────────────────────
+function ParamPanel({ angle, velocity, onAngle, onVelocity, highlightAngle }) {
+  return (
+    <div style={{
+      position:'absolute', left:16, top:56, width:220,
+      background:'rgba(8,8,6,0.82)', backdropFilter:'blur(16px)',
+      border:`1px solid rgba(255,255,255,${highlightAngle?0.18:0.08})`,
+      borderRadius:8, padding:'14px 16px', display:'flex', flexDirection:'column', gap:16,
+      boxShadow: highlightAngle ? '0 0 0 1px var(--acc-g), 0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(0,0,0,0.5)'
+    }}>
+      <div style={{fontSize:11, fontFamily:'var(--fm)', color:'var(--txt3)', letterSpacing:'0.08em', textTransform:'uppercase'}}>
+        parameters
+      </div>
+
+      {/* Launch Angle */}
+      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{
+            fontSize:12, fontWeight:500, color: highlightAngle ? 'var(--acc)' : 'var(--txt2)',
+            fontFamily:'var(--fu)', transition:'color 0.3s'
+          }}>Launch Angle</span>
+          <span style={{
+            fontSize:13, fontFamily:'var(--fm)',
+            color: highlightAngle ? 'var(--acc)' : 'var(--txt)',
+            background: highlightAngle ? 'var(--acc-d)' : 'transparent',
+            padding:'1px 6px', borderRadius:3, transition:'all 0.3s'
+          }}>{angle}°</span>
+        </div>
+        <div style={{position:'relative', height:18, display:'flex', alignItems:'center'}}>
+          <div style={{
+            position:'absolute', left:0, right:0, height:2,
+            background:`linear-gradient(to right, var(--acc) ${(angle/90)*100}%, rgba(255,255,255,0.1) ${(angle/90)*100}%)`,
+            borderRadius:2,
+            boxShadow: highlightAngle ? '0 0 8px var(--acc-g)' : 'none',
+            transition:'box-shadow 0.3s'
+          }}/>
+          <input type="range" min="1" max="89" value={angle} onChange={e=>onAngle(+e.target.value)}
+            style={{position:'absolute',left:0,right:0,width:'100%',opacity:0,cursor:'pointer',height:18,zIndex:2}}/>
+          <div style={{
+            position:'absolute', left:`calc(${(angle/90)*100}% - 7px)`,
+            width:14, height:14, borderRadius:'50%',
+            background: highlightAngle ? 'var(--acc)' : 'var(--txt)',
+            border:`2px solid ${highlightAngle ? 'var(--acc)' : 'rgba(255,255,255,0.3)'}`,
+            boxShadow: highlightAngle ? '0 0 0 4px var(--acc-g)' : 'none',
+            transition:'all 0.3s', pointerEvents:'none'
+          }}/>
+        </div>
+      </div>
+
+      {/* Velocity */}
+      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontSize:12,fontWeight:500,color:'var(--txt2)',fontFamily:'var(--fu)'}}>Velocity</span>
+          <span style={{fontSize:13,fontFamily:'var(--fm)',color:'var(--txt)'}}>{velocity} m/s</span>
+        </div>
+        <div style={{position:'relative',height:18,display:'flex',alignItems:'center'}}>
+          <div style={{
+            position:'absolute',left:0,right:0,height:2,
+            background:`linear-gradient(to right, rgba(255,255,255,0.5) ${((velocity-5)/55)*100}%, rgba(255,255,255,0.1) ${((velocity-5)/55)*100}%)`,
+            borderRadius:2
+          }}/>
+          <input type="range" min="5" max="60" value={velocity} onChange={e=>onVelocity(+e.target.value)}
+            style={{position:'absolute',left:0,right:0,width:'100%',opacity:0,cursor:'pointer',height:18,zIndex:2}}/>
+          <div style={{
+            position:'absolute',left:`calc(${((velocity-5)/55)*100}% - 7px)`,
+            width:14,height:14,borderRadius:'50%',
+            background:'var(--txt)',border:'2px solid rgba(255,255,255,0.3)',
+            pointerEvents:'none'
+          }}/>
+        </div>
+      </div>
+
+      {/* Gravity — locked */}
+      <div style={{opacity:0.32}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <span style={{fontSize:12,fontWeight:500,color:'var(--txt2)',fontFamily:'var(--fu)',display:'flex',alignItems:'center',gap:5}}>
+            <svg width="10" height="12" viewBox="0 0 10 12" fill="none" style={{opacity:0.7}}>
+              <rect x="1" y="5" width="8" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M3 5V3.5a2 2 0 0 1 4 0V5" stroke="currentColor" strokeWidth="1.2"/>
+            </svg>
+            Gravity
+          </span>
+          <span style={{fontSize:13,fontFamily:'var(--fm)',color:'var(--txt3)'}}>9.8 m/s²</span>
+        </div>
+        <div style={{height:2,background:'rgba(255,255,255,0.08)',borderRadius:2}}/>
+        <div style={{fontSize:10,fontFamily:'var(--fm)',color:'var(--txt3)',marginTop:5,textAlign:'center',letterSpacing:'0.05em'}}>
+          locked by tutor
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── TutorStrip ────────────────────────────────────────────────────────────────
+const tutorMessages = [
+  { q: "Before you calculate anything — if you increase the angle from 30° to 60°, what do you predict happens to the range?", ev: null },
+  { q: "What's happening to the horizontal component as you tilt further up?", ev: "param_changed launch_angle 30→60 · range: 34.3 m" },
+  { q: "Now you're at 45°. Look at the range. What's special about this angle, geometrically?", ev: "param_changed launch_angle → 45 · range: 91.8 m (↑ max)" },
+  { q: "Cut gravity in half — same angle, same velocity. What changes?", ev: "checkpoint restored · unlock gravity" },
+];
+
+function TutorStrip({ speaking, listening, msgIdx }) {
+  const msg = tutorMessages[msgIdx % tutorMessages.length];
+  const [inputVal, setInputVal] = useState('');
+  return (
+    <div style={{
+      height:80, display:'flex', alignItems:'stretch',
+      background:'var(--bg2)', borderTop:'1px solid var(--bdr2)',
+      flexShrink:0
+    }}>
+      {/* Waveform section */}
+      <div style={{
+        width:180, borderRight:'1px solid var(--bdr)',
+        display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'0 16px'
+      }}>
+        <div style={{fontSize:10, fontFamily:'var(--fm)', color: speaking ? 'var(--acc)' : 'var(--txt3)', letterSpacing:'0.06em', textTransform:'uppercase', transition:'color 0.3s'}}>
+          {speaking ? '● tutor speaking' : listening ? '● listening' : '○ idle'}
+        </div>
+        <Waveform speaking={speaking} listening={listening} height={28}/>
+        <div style={{fontSize:9, fontFamily:'var(--fm)', color:'var(--txt3)'}}>via ElevenLabs TTS</div>
+      </div>
+
+      {/* Question */}
+      <div style={{flex:1, padding:'0 20px', display:'flex', flexDirection:'column', justifyContent:'center', gap:5}}>
+        <div style={{fontSize:13.5, color:'var(--txt)', lineHeight:1.45, fontWeight:400}}>
+          {msg.q.split(/(\d+°|horizontal|vertical|range|45°|gravity|velocity)/g).map((part, i) =>
+            /(\d+°|horizontal|vertical|range|45°|gravity|velocity)/.test(part)
+              ? <span key={i} style={{color:'var(--acc)',fontWeight:600}}>{part}</span>
+              : part
+          )}
+        </div>
+        {msg.ev && (
+          <div style={{fontSize:10, fontFamily:'var(--fm)', color:'var(--txt3)', letterSpacing:'0.03em'}}>
+            ↳ {msg.ev}
+          </div>
+        )}
+      </div>
+
+      {/* Student input */}
+      <div style={{
+        width:200, borderLeft:'1px solid var(--bdr)', padding:'0 14px',
+        display:'flex', flexDirection:'column', justifyContent:'center', gap:8
+      }}>
+        <div style={{
+          display:'flex', alignItems:'center', gap:8,
+          background:'var(--sur)', border:'1px solid var(--bdr)', borderRadius:6, padding:'6px 10px'
+        }}>
+          <input value={inputVal} onChange={e=>setInputVal(e.target.value)}
+            placeholder="type reply…"
+            style={{
+              flex:1, background:'transparent', border:'none', outline:'none',
+              fontSize:12, color:'var(--txt)', fontFamily:'var(--fu)',
+            }}/>
+        </div>
+        <button style={{
+          height:28, background:'var(--sur2)', border:'1px solid var(--bdr)',
+          borderRadius:5, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+          fontSize:11, color:'var(--txt2)', fontFamily:'var(--fu)', transition:'all 0.2s'
+        }}
+        onMouseEnter={e=>{e.target.style.background='var(--acc-d)';e.target.style.color='var(--acc)';e.target.style.borderColor='var(--acc)';}}
+        onMouseLeave={e=>{e.target.style.background='var(--sur2)';e.target.style.color='var(--txt2)';e.target.style.borderColor='var(--bdr)';}}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+          </svg>
+          speak
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── TopBar ────────────────────────────────────────────────────────────────────
+function TopBar({ concept, branch, checkpoint }) {
+  return (
+    <div style={{
+      height:44, display:'flex', alignItems:'center', padding:'0 16px', gap:12,
+      background:'var(--bg2)', borderBottom:'1px solid var(--bdr)', flexShrink:0, zIndex:10
+    }}>
+      <div style={{display:'flex',alignItems:'center',gap:7}}>
+        <LogoMark size={22}/>
+        <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:16,letterSpacing:'-0.02em',color:'var(--txt)'}}>
+          Pra<span style={{background:'linear-gradient(135deg,var(--acc),var(--vio))',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>x</span>io
+        </div>
+      </div>
+      <div style={{width:1, height:18, background:'var(--bdr)'}}/>
+      <div style={{fontSize:13, color:'var(--txt2)', fontFamily:'var(--fu)', flex:1,
+        overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+        {concept}
+      </div>
+      <div style={{
+        fontSize:11, fontFamily:'var(--fm)', color:'var(--txt3)',
+        background:'var(--sur)', border:'1px solid var(--bdr)', borderRadius:20,
+        padding:'3px 10px', display:'flex', alignItems:'center', gap:6
+      }}>
+        <span style={{color:'var(--acc)', fontSize:9}}>◆</span>
+        {branch} · cp {checkpoint}/3
+      </div>
+      <div style={{
+        width:28, height:28, borderRadius:'50%',
+        background:'linear-gradient(135deg, oklch(62% 0.12 280), oklch(52% 0.12 200))',
+        border:'1px solid var(--bdr)', display:'flex', alignItems:'center', justifyContent:'center',
+        fontSize:11, color:'white', fontFamily:'var(--fd)', fontWeight:700, cursor:'pointer'
+      }}>J</div>
+    </div>
+  );
+}
+
+// ── WorkspaceScreen ───────────────────────────────────────────────────────────
+function WorkspaceScreen({ concept }) {
+  const [angle, setAngle] = useState(30);
+  const [velocity, setVelocity] = useState(30);
+  const [showAnnotation, setShowAnnotation] = useState(true);
+  const [msgIdx, setMsgIdx] = useState(0);
+  const [speaking, setSpeaking] = useState(true);
+  const [listening, setListening] = useState(false);
+  const [highlightAngle, setHighlightAngle] = useState(true);
+
+  return (
+    <div style={{display:'flex', flexDirection:'column', height:'100vh', animation:'fadeIn 0.5s ease'}}>
+      <TopBar concept={concept || 'why does launch angle affect projectile range?'} branch="main" checkpoint={2}/>
+      <div style={{flex:1, position:'relative', overflow:'hidden'}}>
+        <SimCanvas angle={angle} velocity={velocity} showAnnotation={showAnnotation} tutorSpeaking={speaking}/>
+        <ParamPanel angle={angle} velocity={velocity} onAngle={a=>{setAngle(a);setHighlightAngle(false);}} onVelocity={setVelocity} highlightAngle={highlightAngle}/>
+        {/* Next question button */}
+        <button onClick={()=>{setMsgIdx(i=>(i+1)%4);setSpeaking(true);}}
+          style={{
+            position:'absolute', right:16, top:56,
+            background:'rgba(8,8,6,0.82)', backdropFilter:'blur(16px)',
+            border:'1px solid var(--bdr)', borderRadius:6, padding:'8px 14px',
+            fontSize:12, color:'var(--txt2)', fontFamily:'var(--fu)', cursor:'pointer',
+            display:'flex', alignItems:'center', gap:6, transition:'all 0.2s'
+          }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor='var(--acc)'}
+          onMouseLeave={e=>e.currentTarget.style.borderColor='var(--bdr)'}>
+          <span>next question</span>
+          <span style={{color:'var(--acc)'}}>→</span>
+        </button>
+        {/* Annotation toggle */}
+        <button onClick={()=>setShowAnnotation(v=>!v)}
+          style={{
+            position:'absolute', right:16, top:96,
+            background: showAnnotation ? 'var(--amb-d)' : 'rgba(8,8,6,0.82)',
+            backdropFilter:'blur(16px)',
+            border:`1px solid ${showAnnotation ? 'var(--amb)' : 'var(--bdr)'}`,
+            borderRadius:6, padding:'8px 14px',
+            fontSize:12, color: showAnnotation ? 'var(--amb)' : 'var(--txt2)',
+            fontFamily:'var(--fu)', cursor:'pointer', transition:'all 0.2s'
+          }}>
+          {showAnnotation ? '✦ annotations on' : '✦ annotations off'}
+        </button>
+      </div>
+      <TutorStrip speaking={speaking} listening={listening} msgIdx={msgIdx}/>
+    </div>
+  );
+}
+
+// ── LoadingScreen ─────────────────────────────────────────────────────────────
+const STEPS = [
+  { id:'p1', label:'Pass 1 — concept → design doc', code:'{"renderer":"p5.js","params":[{"id":"launch_angle","range":[0,90]},…]}', done:false },
+  { id:'p2', label:'Pass 2 — design doc → sim module', code:'const sim = new ProjectileSim(manifest);\nsim.setParam("launch_angle", 45);', done:false },
+  { id:'sb', label:'Sandbox — iframe runtime loading', code:'SimRuntime.load(module) → postMessage bridge ready', done:false },
+];
+
+function LoadingScreen({ concept, onDone }) {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const timers = [
+      setTimeout(() => setStep(1), 700),
+      setTimeout(() => setStep(2), 1500),
+      setTimeout(() => setStep(3), 2300),
+      setTimeout(() => onDone(), 2900),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  return (
+    <div style={{
+      height:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+      gap:0, background:'var(--bg)', animation:'fadeIn 0.3s ease'
+    }}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:22}}>
+        <LogoMark size={20}/>
+        <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:18,letterSpacing:'-0.02em',color:'var(--txt)'}}>
+          Pra<span style={{background:'linear-gradient(135deg,var(--acc),var(--vio))',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>x</span>io
+        </div>
+      </div>
+      <div style={{
+        fontSize:14, color:'var(--txt2)', marginBottom:36, maxWidth:500, textAlign:'center', lineHeight:1.5
+      }}>
+        "{concept}"
+      </div>
+
+      <div style={{width:420, display:'flex', flexDirection:'column', gap:10}}>
+        {STEPS.map((s, i) => {
+          const done = step > i;
+          const active = step === i;
+          return (
+            <div key={s.id} style={{
+              display:'flex', gap:12, alignItems:'flex-start',
+              opacity: i > step ? 0.3 : 1, transition:'opacity 0.4s ease'
+            }}>
+              <div style={{
+                width:22, height:22, borderRadius:'50%', flexShrink:0, marginTop:1,
+                background: done ? 'var(--acc)' : active ? 'transparent' : 'var(--sur2)',
+                border: done ? 'none' : `1.5px solid ${active ? 'var(--acc)' : 'var(--bdr)'}`,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:11, transition:'all 0.4s'
+              }}>
+                {done ? <svg width="11" height="11" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="var(--bg)" strokeWidth="2" strokeLinecap="round"/></svg>
+                  : active ? <div style={{width:8,height:8,borderRadius:'50%',background:'var(--acc)',animation:'pulse 1s ease-in-out infinite'}}/> : null}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{
+                  fontSize:12.5, fontWeight:500,
+                  color: done ? 'var(--txt)' : active ? 'var(--acc)' : 'var(--txt2)',
+                  fontFamily:'var(--fu)', marginBottom: (done || active) ? 4 : 0, transition:'color 0.3s'
+                }}>{s.label}</div>
+                {(done || active) && (
+                  <div style={{
+                    fontSize:11, fontFamily:'var(--fm)', color:'var(--txt3)',
+                    background:'var(--sur)', border:'1px solid var(--bdr)',
+                    borderRadius:5, padding:'5px 10px', lineHeight:1.6,
+                    animation:'slideUp 0.3s ease'
+                  }}>
+                    {s.code.split('\n').map((l,j)=><div key={j}>{l}</div>)}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{marginTop:32, fontSize:11, fontFamily:'var(--fm)', color:'var(--txt3)'}}>
+        {step < 3 ? 'generating simulation via Gemma 4 31B-it…' : 'launching workspace…'}
+      </div>
+    </div>
+  );
+}
+
+// ── LandingScreen ─────────────────────────────────────────────────────────────
+function LandingScreen({ onSubmit }) {
+  const [val, setVal] = useState('');
+  const [micOn, setMicOn] = useState(false);
+  const [focused, setFocused] = useState(false);
+
+  const suggestions = [
+    'why does launch angle affect projectile range?',
+    'what does a derivative actually mean geometrically?',
+    'how do concentration gradients drive diffusion?',
+    'what makes an enzyme saturate at high substrate levels?'
+  ];
+
+  function submit(text) {
+    const t = text || val;
+    if (t.trim()) onSubmit(t.trim());
+  }
+
+  return (
+    <div style={{
+      height:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+      background:'var(--bg)', position:'relative', overflow:'hidden'
+    }}>
+      {/* Ambient grid */}
+      <div style={{
+        position:'absolute', inset:0, pointerEvents:'none',
+        backgroundImage:`
+          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)`,
+        backgroundSize:'40px 40px',
+        maskImage:'radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 100%)'
+      }}/>
+      {/* Indigo glow bloom */}
+      <div style={{
+        position:'absolute', width:700, height:400,
+        background:'radial-gradient(ellipse, oklch(30% 0.12 272 / 0.55) 0%, transparent 70%)',
+        top:'38%', left:'50%', transform:'translate(-50%,-50%)', pointerEvents:'none'
+      }}/>
+      {/* Coral accent glow */}
+      <div style={{
+        position:'absolute', width:400, height:200,
+        background:'radial-gradient(ellipse, oklch(70% 0.19 28 / 0.09) 0%, transparent 70%)',
+        top:'34%', left:'50%', transform:'translate(-50%,-50%)', pointerEvents:'none'
+      }}/>
+
+      {/* Logo */}
+      <div className="wu wu1" style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
+        <LogoMark size={40}/>
+        <div style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:46,letterSpacing:'-0.03em',color:'var(--txt)',lineHeight:1}}>
+          Pra<span style={{background:'linear-gradient(135deg,var(--acc),var(--vio))',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>x</span>io
+        </div>
+      </div>
+
+      <div className="wu wu2" style={{
+        fontSize:17, color:'var(--txt2)', marginBottom:44, fontWeight:400, letterSpacing:'0.01em', lineHeight:1.5
+      }}>
+        stop reading. start discovering.
+      </div>
+
+      {/* Input */}
+      <div className="wu wu3" style={{width:'100%', maxWidth:560, position:'relative'}}>
+        <div style={{
+          display:'flex', alignItems:'center',
+          background:'var(--bg3)', border:`1.5px solid ${focused ? 'var(--acc)' : 'var(--bdr2)'}`,
+          borderRadius:10, padding:'14px 16px', gap:12,
+          boxShadow: focused ? '0 0 0 3px var(--acc-g)' : 'none',
+          transition:'all 0.25s'
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={focused?'var(--acc)':'var(--txt3)'} strokeWidth="2" style={{transition:'stroke 0.25s',flexShrink:0}}>
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            value={val}
+            onChange={e => setVal(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={e => e.key==='Enter' && submit()}
+            placeholder="what's not clicking?"
+            style={{
+              flex:1, background:'transparent', border:'none', outline:'none',
+              fontSize:15, color:'var(--txt)', fontFamily:'var(--fu)', fontWeight:400
+            }}
+          />
+          {/* Mic toggle */}
+          <button onClick={() => setMicOn(m=>!m)} style={{
+            width:32, height:32, borderRadius:6, flexShrink:0,
+            background: micOn ? 'var(--red)' : 'var(--sur2)',
+            border:`1px solid ${micOn ? 'var(--red)' : 'var(--bdr)'}`,
+            display:'flex', alignItems:'center', justifyContent:'center',
+            cursor:'pointer', transition:'all 0.2s'
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+            </svg>
+          </button>
+          {/* Submit */}
+          <button onClick={() => submit()} style={{
+            height:32, padding:'0 14px', borderRadius:6,
+            background: val.trim() ? 'var(--acc)' : 'var(--sur2)',
+            border:`1px solid ${val.trim() ? 'var(--acc)' : 'var(--bdr)'}`,
+            color: val.trim() ? 'var(--bg)' : 'var(--txt3)',
+            fontSize:12, fontFamily:'var(--fu)', fontWeight:600, cursor:'pointer',
+            transition:'all 0.25s', flexShrink:0, whiteSpace:'nowrap'
+          }}>
+            build it →
+          </button>
+        </div>
+      </div>
+
+      {/* Suggestions */}
+      <div className="wu wu4" style={{marginTop:24, display:'flex', flexDirection:'column', gap:6, width:'100%', maxWidth:560}}>
+        <div style={{fontSize:11, fontFamily:'var(--fm)', color:'var(--txt3)', marginBottom:4, letterSpacing:'0.06em', textTransform:'uppercase'}}>
+          or try one of these
+        </div>
+        {suggestions.map((s,i) => (
+          <button key={i} onClick={() => submit(s)} style={{
+            textAlign:'left', background:'var(--sur)', border:'1px solid var(--bdr)',
+            borderRadius:6, padding:'8px 12px', color:'var(--txt2)',
+            fontSize:12.5, fontFamily:'var(--fu)', cursor:'pointer',
+            transition:'all 0.18s', lineHeight:1.4,
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor='rgba(255,255,255,0.2)';e.currentTarget.style.color='var(--txt)';e.currentTarget.style.background='var(--sur2)'}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--bdr)';e.currentTarget.style.color='var(--txt2)';e.currentTarget.style.background='var(--sur)'}}>
+            <span style={{color:'var(--acc)',marginRight:8}}>✦</span>{s}
+          </button>
+        ))}
+      </div>
+
+      <div className="wu wu5" style={{
+        position:'absolute', bottom:24, fontSize:11, fontFamily:'var(--fm)', color:'var(--txt3)'
+      }}>
+        Gemma 4 · ElevenLabs · MongoDB Atlas · p5.js
+      </div>
+    </div>
+  );
+}
+
+// ── Tweaks ────────────────────────────────────────────────────────────────────
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "showAnnotation": true,
+  "tutorSpeaking": true,
+  "highlightAngle": true,
+  "accentHue": 160
+}/*EDITMODE-END*/;
+
+function TweaksPanel({ visible, tweaks, onChange }) {
+  if (!visible) return null;
+  return (
+    <div style={{
+      position:'fixed', bottom:100, right:16, width:220, zIndex:1000,
+      background:'rgba(8,8,6,0.94)', backdropFilter:'blur(20px)',
+      border:'1px solid var(--bdr2)', borderRadius:8, padding:14,
+      boxShadow:'0 12px 40px rgba(0,0,0,0.6)'
+    }}>
+      <div style={{fontSize:11, fontFamily:'var(--fm)', color:'var(--txt3)', marginBottom:12, letterSpacing:'0.08em', textTransform:'uppercase'}}>
+        Tweaks
+      </div>
+      {[
+        {key:'showAnnotation',label:'AI annotations'},
+        {key:'tutorSpeaking',label:'Tutor speaking'},
+        {key:'highlightAngle',label:'Highlight angle param'},
+      ].map(({key,label}) => (
+        <label key={key} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,cursor:'pointer'}}>
+          <span style={{fontSize:12,color:'var(--txt2)',fontFamily:'var(--fu)'}}>{label}</span>
+          <div onClick={()=>onChange({...tweaks,[key]:!tweaks[key]})} style={{
+            width:34,height:18,borderRadius:9,
+            background:tweaks[key]?'var(--acc)':'var(--sur2)',
+            border:`1px solid ${tweaks[key]?'var(--acc)':'var(--bdr)'}`,
+            cursor:'pointer',position:'relative',transition:'all 0.25s'
+          }}>
+            <div style={{
+              position:'absolute',top:2,width:12,height:12,borderRadius:'50%',background:'white',
+              left:tweaks[key]?18:2,transition:'left 0.25s'
+            }}/>
+          </div>
+        </label>
+      ))}
+      <div style={{marginTop:4}}>
+        <div style={{fontSize:11,color:'var(--txt3)',fontFamily:'var(--fm)',marginBottom:6}}>Accent hue</div>
+        <div style={{display:'flex',gap:6}}>
+          {[{hue:28,label:'coral'},{hue:295,label:'violet'},{hue:160,label:'mint'}].map(({hue,label})=>(
+            <button key={hue} onClick={()=>{onChange({...tweaks,accentHue:hue});document.documentElement.style.setProperty('--acc',`oklch(70% 0.19 ${hue})`);document.documentElement.style.setProperty('--acc-d',`oklch(70% 0.19 ${hue} / 0.14)`);document.documentElement.style.setProperty('--acc-g',`oklch(70% 0.19 ${hue} / 0.26)`);}}
+              style={{
+                flex:1,padding:'4px 0',borderRadius:4,fontSize:10,fontFamily:'var(--fm)',cursor:'pointer',
+                background: tweaks.accentHue===hue ? `oklch(72% 0.18 ${hue} / 0.2)` : 'var(--sur)',
+                border:`1px solid ${tweaks.accentHue===hue ? `oklch(72% 0.18 ${hue})` : 'var(--bdr)'}`,
+                color: tweaks.accentHue===hue ? `oklch(72% 0.18 ${hue})` : 'var(--txt3)', transition:'all 0.2s'
+              }}>{label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen] = useState('landing');
+  const [concept, setConcept] = useState('');
+  const [tweaksVisible, setTweaksVisible] = useState(false);
+  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
+
+  // Tweaks messaging
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === '__activate_edit_mode') setTweaksVisible(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksVisible(false);
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  function handleTweakChange(newT) {
+    setTweaks(newT);
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: newT }, '*');
+  }
+
+  return (
+    <div style={{height:'100vh',overflow:'hidden',position:'relative'}}>
+      {screen === 'landing' && (
+        <LandingScreen onSubmit={text => { setConcept(text); setScreen('loading'); }}/>
+      )}
+      {screen === 'loading' && (
+        <LoadingScreen concept={concept} onDone={() => setScreen('workspace')}/>
+      )}
+      {screen === 'workspace' && (
+        <WorkspaceScreen concept={concept} tweaks={tweaks}/>
+      )}
+      <TweaksPanel visible={tweaksVisible} tweaks={tweaks} onChange={handleTweakChange}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
