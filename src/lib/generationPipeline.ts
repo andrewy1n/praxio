@@ -10,13 +10,14 @@ import { runVerificationInvariantSelfCheck } from '@/lib/verificationInvariantSe
 import {
   DesignDocCoreSchema,
   DesignDocSchema,
-  VerificationBlockSchema,
+  VerificationBlockRawSchema,
   type DesignDoc,
   type DesignDocCore,
   type GenerateErrorResponse,
   type GenerateResponse,
   type CurriculumAgentDiagnosis,
   type VerificationBlock,
+  type VerificationBlockRaw,
   type GenerateProgressStepId,
   type VerificationReport,
   type SocraticStep,
@@ -30,7 +31,7 @@ import { validateSimModule } from '@/lib/validation'
 import { formatVerificationFailures, verifySimBehavior } from '@/lib/verification'
 import { loadTemplateByDomain } from '@/lib/templateRegistry'
 
-const genModel = google('gemini-2.5-flash')
+const genModel = google('gemma-4-31b-it')
 
 const MAX_CURRICULUM_VERIFICATION_ROUNDS = 3
 const MAX_STATIC_VALIDATION_ATTEMPTS = 3
@@ -217,41 +218,27 @@ function listNumericHypothesisMetrics(core: DesignDocCore): string[] {
 
 function normalizeVerificationBlock(
   core: DesignDocCore,
-  block: VerificationBlock,
+  raw: VerificationBlockRaw,
 ): VerificationBlock {
   const numericMetrics = listNumericHypothesisMetrics(core)
-
-  const paramDefaults = new Map(core.params.map(param => [param.name, param.default]))
   const allowedParamNames = new Set(core.params.map(param => param.name))
 
-  const probes = block.probes.map((probe) => {
-    const repairedParams: Record<string, number> = {}
-    for (const [name, defaultValue] of paramDefaults) {
-      const candidate = probe.params[name]
-      repairedParams[name] = typeof candidate === 'number' ? candidate : defaultValue
+  const probes = raw.probes.map((probe) => {
+    // Convert params array → record, dropping any entries with unknown param names.
+    const params: Record<string, number> = {}
+    for (const { name, value } of probe.params) {
+      if (allowedParamNames.has(name)) {
+        params[name] = value
+      }
     }
 
-    const existingMetrics = probe.expected_metrics
-      .map(metric => metric.trim())
-      .filter(Boolean)
-    const mergedMetrics = Array.from(new Set([...existingMetrics, ...numericMetrics]))
+    const existingMetrics = probe.expected_metrics.map(m => m.trim()).filter(Boolean)
+    const expected_metrics = Array.from(new Set([...existingMetrics, ...numericMetrics]))
 
-    // Drop stray param keys and ensure all core params are present with values.
-    const params = Object.fromEntries(
-      Object.entries(repairedParams).filter(([name]) => allowedParamNames.has(name)),
-    )
-
-    return {
-      ...probe,
-      params,
-      expected_metrics: mergedMetrics,
-    }
+    return { ...probe, params, expected_metrics }
   })
 
-  return {
-    ...block,
-    probes,
-  }
+  return { ...raw, probes }
 }
 
 async function applyTemplateFallback(
@@ -442,7 +429,7 @@ export async function runGenerationPipeline(
     try {
       const vout = await generateText({
         model: genModel,
-        output: Output.object({ schema: VerificationBlockSchema }),
+        output: Output.object({ schema: VerificationBlockRawSchema }),
         system: VERIFICATION_SPEC_SYSTEM_PROMPT,
         prompt: `DESIGN DOC CORE:\n${JSON.stringify(core, null, 2)}${metricRequirementPrompt}${verHint}`,
       })
@@ -564,6 +551,16 @@ export async function runGenerationPipeline(
         (consistency.errors.length > 8
           ? `\n(Plus ${consistency.errors.length - 8} more.)`
           : '')
+
+      // Feed consistency errors back to the verification-spec agent on retry.
+      // Without this, lastVerSpecMessage stays '' and verHint is empty — the agent retries blind.
+      const hasEmptyParams = consistency.errors.some(e => e.message.includes('Probe params must not be empty'))
+      if (hasEmptyParams) {
+        const paramExample = merged.params.map(p => `"${p.name}": ${p.default}`).join(', ')
+        lastVerSpecMessage = `Every probe.params was empty. You MUST populate params with ALL design doc param names and concrete numeric values. Example: {${paramExample}}`
+      } else {
+        lastVerSpecMessage = `Consistency errors in your verification output: ${summarizedErrors}`
+      }
 
       if (round === MAX_CURRICULUM_VERIFICATION_ROUNDS) {
         throw new GenerationFailedError({

@@ -21,6 +21,8 @@
   let launchFn = null
   let resetFn = null
   let episodic = false
+  let episodePhase = 'idle'   // 'idle' | 'active' | 'done'
+  let coordTransform = null   // set via runtime.setCoordinateTransform(...)
   let animFrameId = null
   let lastTime = null
   let paused = false
@@ -95,6 +97,44 @@
 
     emitEvent(name, payload = {}) {
       parent.postMessage({ type: 'SIM_EVENT', event: name, payload, timestamp: Date.now() }, '*')
+    },
+
+    // ── Episodic helper ──────────────────────────────────────────────────────
+    // Preferred over calling onLaunch/onReset/reportPhase directly.
+    // endEpisode() is safe to call every frame — it fires reportPhase('done') exactly once.
+    episodic({ onLaunch: onLaunchCb, onReset: onResetCb }) {
+      runtime.onLaunch(() => {
+        episodePhase = 'active'
+        onLaunchCb()
+      })
+      runtime.onReset(() => {
+        episodePhase = 'idle'
+        onResetCb()
+      })
+    },
+
+    endEpisode() {
+      if (episodePhase !== 'active') return
+      episodePhase = 'done'
+      runtime.reportPhase('done')
+    },
+
+    // ── Coordinate transform helpers ─────────────────────────────────────────
+    // Call setCoordinateTransform once (e.g. at top of onRender) whenever the
+    // canvas size or physics domain changes. toScreenX/toScreenY return 0
+    // before any transform is registered so region getPosition callbacks are safe
+    // to call before the first launch.
+    setCoordinateTransform({ originX, originY, scaleX, scaleY }) {
+      coordTransform = { originX, originY, scaleX, scaleY }
+    },
+
+    toScreenX(x_m) {
+      return coordTransform ? coordTransform.originX + x_m * coordTransform.scaleX : 0
+    },
+
+    toScreenY(y_m) {
+      // physics y is up; screen y is down — flip
+      return coordTransform ? coordTransform.originY - y_m * coordTransform.scaleY : 0
     },
   }
 
@@ -263,6 +303,8 @@
     launchFn = null
     resetFn = null
     episodic = false
+    episodePhase = 'idle'
+    coordTransform = null
     paused = false
     trackRegions = false
     lastRegionPositionSentAt = 0

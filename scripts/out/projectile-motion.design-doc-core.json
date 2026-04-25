@@ -1,0 +1,158 @@
+{
+  "concept": "Projectile Motion",
+  "domain": "physics",
+  "primitive": "physics.projectile",
+  "renderer": "p5",
+  "episodic": true,
+  "params": [
+    {
+      "name": "launch_angle",
+      "range": [
+        0,
+        90
+      ],
+      "default": 45,
+      "label": "Launch Angle",
+      "unit": "degrees"
+    },
+    {
+      "name": "initial_velocity",
+      "range": [
+        5,
+        50
+      ],
+      "default": 20,
+      "label": "Initial Velocity",
+      "unit": "m/s"
+    },
+    {
+      "name": "gravity",
+      "range": [
+        1,
+        20
+      ],
+      "default": 9.81,
+      "label": "Gravity",
+      "unit": "m/s^2"
+    },
+    {
+      "name": "launch_height",
+      "range": [
+        0,
+        100
+      ],
+      "default": 0,
+      "label": "Launch Height",
+      "unit": "m"
+    }
+  ],
+  "governing_equations": [
+    "x = v0 * cos(theta) * t",
+    "y = y0 + v0 * sin(theta) * t - 0.5 * g * t^2",
+    "time_of_flight = (v0 * sin(theta) + sqrt((v0 * sin(theta))^2 + 2 * g * y0)) / g",
+    "range = v0 * cos(theta) * time_of_flight"
+  ],
+  "emit_events": [
+    "projectile_launched",
+    "projectile_landed",
+    "peak_reached"
+  ],
+  "register_regions": [
+    "launch_point",
+    "landing_point",
+    "peak_height_marker",
+    "trajectory_path"
+  ],
+  "initial_staging": {
+    "locked": [],
+    "highlighted": [
+      "launch_angle",
+      "initial_velocity"
+    ]
+  },
+  "socratic_plan": [
+    {
+      "id": "step_1_explore_basics",
+      "learning_goal": "Understand how launch angle and initial velocity affect projectile trajectory.",
+      "question": "Observe how changing the launch angle and initial velocity affects the projectile's path and where it lands. What do you notice about their individual influences?",
+      "interaction": {
+        "kind": "manipulate_param",
+        "params": [
+          "launch_angle",
+          "initial_velocity"
+        ]
+      },
+      "staging": {
+        "lock": [
+          "gravity",
+          "launch_height"
+        ],
+        "highlight": [
+          "launch_angle",
+          "initial_velocity"
+        ]
+      },
+      "exit_condition": "student has manipulated both parameters and verbalized observations"
+    },
+    {
+      "id": "step_2_max_range",
+      "learning_goal": "Discover the launch angle that maximizes horizontal range for a given initial velocity and flat ground.",
+      "question": "For a fixed initial velocity and launching from the ground, what launch angle do you predict will achieve the maximum horizontal range?",
+      "interaction": {
+        "kind": "numeric_hypothesis",
+        "metric": "range_m",
+        "unit": "m"
+      },
+      "staging": {
+        "lock": [
+          "initial_velocity",
+          "gravity",
+          "launch_height"
+        ],
+        "highlight": [
+          "launch_angle"
+        ],
+        "set_params": {}
+      },
+      "exit_condition": "student makes a numeric hypothesis for range and then manipulates angle to test"
+    },
+    {
+      "id": "step_3_gravity_impact",
+      "learning_goal": "Analyze the effect of gravity on projectile motion.",
+      "question": "Now, consider the effect of gravity. How do you expect a higher or lower gravitational acceleration to change the projectile's range and time of flight?",
+      "interaction": {
+        "kind": "manipulate_param",
+        "params": [
+          "gravity"
+        ]
+      },
+      "staging": {
+        "unlock": [
+          "gravity",
+          "launch_angle",
+          "initial_velocity",
+          "launch_height",
+          "gravity"
+        ]
+      },
+      "exit_condition": "student has manipulated gravity and observed changes"
+    },
+    {
+      "id": "step_4_launch_height_impact",
+      "learning_goal": "Understand how initial launch height affects range and time of flight.",
+      "question": "What if the projectile is launched from a height above the ground? How would increasing the 'Launch Height' parameter affect the total time the projectile is in the air and its final horizontal range?",
+      "interaction": {
+        "kind": "manipulate_param",
+        "params": [
+          "launch_height"
+        ]
+      },
+      "staging": {
+        "unlock": [
+          "launch_height"
+        ]
+      },
+      "exit_condition": "student has manipulated launch_height and observed changes"
+    }
+  ]
+}

@@ -55,6 +55,15 @@ const ProbeSchema = z.object({
   expected_metrics: z.array(z.string()),
 })
 
+// Raw probe as the model emits it: params is an array so JSON schema enforces minItems:1.
+// normalizeVerificationBlock converts this to ProbeSchema (record) before pipeline use.
+const ProbeRawSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  params: z.array(z.object({ name: z.string(), value: z.number() })).min(1).max(20),
+  expected_metrics: z.array(z.string()),
+})
+
 const CanonicalInvariantSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('approximately_equal'),
@@ -304,6 +313,14 @@ export const VerificationBlockSchema = z.object({
   invariants: z.array(InvariantSchema).min(2).max(8),
 })
 export type VerificationBlock = z.infer<typeof VerificationBlockSchema>
+
+/** Raw verification block as the model outputs it — probe params is an array (minItems:1 in JSON schema). */
+export const VerificationBlockRawSchema = z.object({
+  summary: z.string(),
+  probes: z.array(ProbeRawSchema).min(2).max(8),
+  invariants: z.array(InvariantSchema).min(2).max(8),
+})
+export type VerificationBlockRaw = z.infer<typeof VerificationBlockRawSchema>
 
 const DesignDocBaseFieldsSchema = z.object({
   concept: z.string(),

@@ -2,13 +2,16 @@
  * Headless/Node — same API as public/runtime-primitives/physics.js
  */
 export const praxioRuntimePhysics = {
-  projectile(speed_mps: number, angle_deg: number, g_mps2?: number) {
+  projectile(speed_mps: number, angle_deg: number, g_mps2?: number, launch_height_m?: number) {
     const g = g_mps2 == null ? 9.8 : g_mps2
+    const y0 = launch_height_m == null ? 0 : launch_height_m
     if (g <= 0) throw new Error('runtime.physics.projectile: g must be > 0')
+    if (y0 < 0) throw new Error('runtime.physics.projectile: launch_height_m must be >= 0')
     const a = (angle_deg * Math.PI) / 180
     const vx = speed_mps * Math.cos(a)
     const vy = speed_mps * Math.sin(a)
-    const flightTime = (2 * vy) / g
+    // Quadratic formula: y0 + vy*t - 0.5*g*t^2 = 0
+    const flightTime = (vy + Math.sqrt(vy * vy + 2 * g * y0)) / g
     const range = vx * flightTime
     return {
       positionAt: (t: number) => ({ x_m: vx * t, y_m: vy * t - 0.5 * g * t * t }),

@@ -41,6 +41,20 @@ function buildHeadlessRuntime(paramOverrides: Record<string, number>) {
     reportPhase(phase: string) {
       if (phase === 'done') phaseDone = true
     },
+    episodic({ onLaunch: onLaunchCb, onReset: onResetCb }: { onLaunch: LaunchCallback; onReset: () => void }) {
+      launchCallback = () => {
+        phaseDone = false
+        onLaunchCb()
+      }
+      runtime.onReset(onResetCb)
+    },
+    endEpisode() {
+      if (!phaseDone) phaseDone = true
+      runtime.reportPhase('done')
+    },
+    setCoordinateTransform(_opts: unknown) {},
+    toScreenX(_x: number) { return 0 },
+    toScreenY(_y: number) { return 0 },
   }
 
   return {

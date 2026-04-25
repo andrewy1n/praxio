@@ -77,6 +77,8 @@ Rules:
 - verification.probes: 2–8 deterministic test cases. Each probe: id, description, params (param name → number within existing param ranges), expected_metrics (metric names the sim will emit in event payloads, e.g. "range_m").
 - First, read NUMERIC_HYPOTHESIS_METRICS from the user prompt. Then ensure every listed metric appears in expected_metrics (exact string) on at least one probe.
 - Probe params must use the exact param names from the design doc core; do not leave params empty. Include all design-doc params on each probe unless impossible.
+- Valid probe shape (params is an ARRAY of {name, value} objects — every design-doc param must appear):
+  {"id":"probe_id","description":"...","params":[{"name":"launch_angle","value":30},{"name":"initial_velocity","value":25},{"name":"gravity","value":9.81},{"name":"launch_height","value":0}],"expected_metrics":["range_m","time_of_flight_s"]}
 - Every numeric_hypothesis step in the socratic plan uses interaction.metric: that string MUST appear in at least one probe's expected_metrics (exact spelling).
 - Projectile lessons: probes should list the metrics the sim emits (typically "range_m", often "time_of_flight_s"). Every socratic numeric_hypothesis.metric must appear on ≥1 probe — if core asks for a range guess, use "range_m" in expected_metrics everywhere that probe runs range checks.
 - verification.invariants: 2–8 machine-checkable domain claims.
@@ -90,7 +92,7 @@ Rules:
 - For projectile (primitive physics.projectile): never claim monotonic range vs angle from 30°→45°→60°; 30° and 60° often have near-equal range at fixed v0 and g.
 `.trim()
 
-const PASS2_RUNTIME_CONTRACT = `
+const SIM_BUILDER_RUNTIME_CONTRACT_HEADER = `
 RUNTIME CONTRACT (new Function execution):
 - Your output is executed as: new Function('runtime', code)(runtime).
 - runtime is already in scope.
@@ -99,36 +101,32 @@ RUNTIME CONTRACT (new Function execution):
 
 AVAILABLE RUNTIME API:
 - runtime.registerParam(name, { min, max, default, label, unit? }) -> getter function
-- runtime.registerRegion(name, { getPosition: () => ({ x, y }) }) // getPosition is REQUIRED; x/y are iframe CSS pixels
+  registerParam returns a getter function only. Use getter() to read current value.
+- runtime.registerRegion(name, { getPosition: () => ({ x, y }) }) // x/y are iframe CSS pixels
 - runtime.onUpdate((dt) => { ... })
 - runtime.onRender((ctx) => { ... })  // ctx depends on renderer
 - runtime.emit(eventName, payload) // preferred
 - runtime.emitEvent(eventName, payload) // compatibility alias
-- For episodic sims: runtime.onLaunch, runtime.onReset, runtime.reportPhase('done') (see SDK).
 
-PRIMITIVES (closed-form; use when designDoc.primitive matches — do not reimplement integrators for these):
-- runtime.physics.projectile(speed_mps, angle_deg, g_mps2) → { positionAt(t), velocityAt(t), flightTime, range, peak, didLand(t) } — y=0 at launch, y>0 up.
-  Exact nested shapes:
-  - positionAt(t) returns { x_m: number, y_m: number } (NOT x/y)
-  - velocityAt(t) returns { vx: number, vy: number }
-  - peak is { t: number, height_m: number } (NOT time/x/y)
-  - didLand(t) returns boolean
-  Required usage for "physics.projectile":
-  - Emit range_m from traj.range on landing (NOT from sampled position drift).
-  - Emit time_of_flight_s from traj.flightTime when landing occurs.
-  - Never read positionAt(...).x or .y; never read peak.time/peak.x/peak.y.
-- runtime.physics.shm(amplitude, omega_rad_s, phase_rad) → { positionAt, velocityAt, period }
-- runtime.physics.exponentialDecay(initial, k) → { valueAt, halfLife }
-- runtime.physics.elasticCollision1D(m1, v1, m2, v2) → { v1_final, v2_final }
-- runtime.physics.logisticGrowth(initial, k, carrying_capacity) → { valueAt, inflectionPoint }
-- runtime.math.derivative(exprString, x) — x numeric
-- runtime.math.integral(f, a, b) — f is a JS function, or a string expression in x
-- runtime.math.evaluate(exprString, scope)
-- runtime.math.taylorCoefficients(exprString, center, terms) — returns [{ degree, coefficient }, ...]
-- runtime.math.complex(re, im)
-If designDoc.primitive is "physics.projectile", you MUST use runtime.physics.projectile for flight path, range, and metrics. If "math.expression", you MUST use runtime.math for stated derivatives/integrals.
-registerParam returns a getter function only. Use getter() to read current value; do not read getter.min/getter.max/getter.default.
+EPISODIC SIMS — use runtime.episodic() (preferred over raw onLaunch/onReset/reportPhase):
+  runtime.episodic({
+    onLaunch() { /* ball fired, reaction started, etc. — set any "running" flags here */ },
+    onReset()  { /* clear trajectory, reset counters, return to idle visual */ },
+  });
+  // Signal end-of-episode (e.g. ball landed, reaction complete) — safe to call every frame,
+  // fires reportPhase('done') exactly once per episode:
+  runtime.endEpisode()
 
+COORDINATE TRANSFORM — call once per render (or on resize) so region positions stay current:
+  runtime.setCoordinateTransform({ originX, originY, scaleX, scaleY })
+  // originX/Y: screen pixel where physics (0,0) sits
+  // scaleX/Y:  pixels per physics unit (scaleY flips y — physics up becomes screen down)
+  runtime.toScreenX(x_physics)  // → CSS pixel x
+  runtime.toScreenY(y_physics)  // → CSS pixel y (y-axis flipped automatically)
+  // Returns 0 before setCoordinateTransform is called — region callbacks are safe pre-launch.
+`.trim()
+
+const SIM_BUILDER_RUNTIME_CONTRACT_HARD_RULES = `
 HARD RULES:
 1) No imports/require.
 2) No document/window/globalThis/DOM access.
@@ -144,6 +142,71 @@ HARD RULES:
     Derive drawing bounds from the render context dimensions.
 12) Never call registerRegion(name) without getPosition. Region positions power tutor highlights and annotations.
 `.trim()
+
+function primitivesBlock(primitive?: string): string {
+  if (!primitive) {
+    return 'PRIMITIVES: None selected — implement physics/math from scratch.'
+  }
+
+  const blocks: Record<string, string> = {
+    'physics.projectile': `PRIMITIVES (closed-form — do not reimplement the integrator):
+- runtime.physics.projectile(speed_mps, angle_deg, g_mps2) → { positionAt(t), velocityAt(t), flightTime, range, peak, didLand(t) } — y=0 at launch, y>0 up.
+  Exact nested shapes:
+  - positionAt(t) returns { x_m: number, y_m: number } (NOT x/y)
+  - velocityAt(t) returns { vx: number, vy: number }
+  - peak is { t: number, height_m: number } (NOT time/x/y)
+  - didLand(t) returns boolean
+  Required usage:
+  - Emit range_m from traj.range on landing (NOT from sampled position drift).
+  - Emit time_of_flight_s from traj.flightTime when landing occurs.
+  - Never read positionAt(...).x or .y; never read peak.time/peak.x/peak.y.
+You MUST use runtime.physics.projectile for flight path, range, and metrics.
+
+COORDINATE TRANSFORM for physics.projectile — call at top of onRender to keep regions accurate:
+  const scale = (ctx.width * 0.8) / traj.range   // fit trajectory across 80% of canvas width
+  runtime.setCoordinateTransform({
+    originX: ctx.width * 0.1,   // left margin
+    originY: ctx.height * 0.85, // ground level
+    scaleX: scale,
+    scaleY: scale,
+  })
+  // Then region getPosition callbacks are trivial:
+  //   launch_point:    { x: runtime.toScreenX(0),              y: runtime.toScreenY(0) }
+  //   peak_trajectory: { x: runtime.toScreenX(traj.range / 2), y: runtime.toScreenY(traj.peak.height_m) }
+  //   landing_point:   { x: runtime.toScreenX(traj.range),     y: runtime.toScreenY(0) }
+  // Use a fallback traj (default params) before first launch so positions are non-zero from the start.`,
+
+    'physics.shm': `PRIMITIVES (closed-form — do not reimplement the integrator):
+- runtime.physics.shm(amplitude, omega_rad_s, phase_rad) → { positionAt(t), velocityAt(t), period }
+You MUST use runtime.physics.shm for oscillation state.`,
+
+    'physics.exponentialDecay': `PRIMITIVES (closed-form — do not reimplement the integrator):
+- runtime.physics.exponentialDecay(initial, k) → { valueAt(t), halfLife }
+You MUST use runtime.physics.exponentialDecay for decay state.`,
+
+    'physics.elasticCollision1D': `PRIMITIVES (closed-form — do not reimplement the integrator):
+- runtime.physics.elasticCollision1D(m1, v1, m2, v2) → { v1_final, v2_final }
+You MUST use runtime.physics.elasticCollision1D for collision outcomes.`,
+
+    'physics.logisticGrowth': `PRIMITIVES (closed-form — do not reimplement the integrator):
+- runtime.physics.logisticGrowth(initial, k, carrying_capacity) → { valueAt(t), inflectionPoint }
+You MUST use runtime.physics.logisticGrowth for population state.`,
+
+    'math.expression': `PRIMITIVES (closed-form — do not reimplement these):
+- runtime.math.derivative(exprString, x) — x numeric
+- runtime.math.integral(f, a, b) — f is a JS function, or a string expression in x
+- runtime.math.evaluate(exprString, scope)
+- runtime.math.taylorCoefficients(exprString, center, terms) — returns [{ degree, coefficient }, ...]
+- runtime.math.complex(re, im)
+You MUST use runtime.math for stated derivatives/integrals.`,
+  }
+
+  return blocks[primitive] ?? `PRIMITIVES: Unknown primitive "${primitive}" — implement physics/math from scratch.`
+}
+
+function buildRuntimeContract(primitive?: string): string {
+  return [SIM_BUILDER_RUNTIME_CONTRACT_HEADER, primitivesBlock(primitive), SIM_BUILDER_RUNTIME_CONTRACT_HARD_RULES].join('\n\n')
+}
 
 function rendererCheatsheet(renderer: DesignDoc['renderer']): string {
   switch (renderer) {
@@ -318,7 +381,7 @@ ${block}
   return `You are the sim-builder agent of Praxio's simulation pipeline.
 ${isRepair ? 'Revise the simulation code to satisfy the design document and the issues below.' : 'Generate sandbox-safe simulation code from the design document.'}
 
-${PASS2_RUNTIME_CONTRACT}
+${buildRuntimeContract(designDoc.primitive)}
 
 ${rendererCheatsheet(designDoc.renderer)}
 

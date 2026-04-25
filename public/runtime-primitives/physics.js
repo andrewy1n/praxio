@@ -5,13 +5,16 @@
 ;(function (global) {
   'use strict'
 
-  function projectile(speed_mps, angle_deg, g_mps2) {
+  function projectile(speed_mps, angle_deg, g_mps2, launch_height_m) {
     const g = g_mps2 == null ? 9.8 : g_mps2
+    const y0 = launch_height_m == null ? 0 : launch_height_m
     if (g <= 0) throw new Error('runtime.physics.projectile: g must be > 0')
+    if (y0 < 0) throw new Error('runtime.physics.projectile: launch_height_m must be >= 0')
     const a = (angle_deg * Math.PI) / 180
     const vx = speed_mps * Math.cos(a)
     const vy = speed_mps * Math.sin(a)
-    const flightTime = (2 * vy) / g
+    // Quadratic formula: y0 + vy*t - 0.5*g*t^2 = 0
+    const flightTime = (vy + Math.sqrt(vy * vy + 2 * g * y0)) / g
     const range = vx * flightTime
     return {
       positionAt(t) {
