@@ -1060,11 +1060,21 @@
     const t0 = performance.now()
     let res
     let data
+    let sessionId = null
+    try {
+      sessionId = localStorage.getItem('praxioSessionId')
+      if (!sessionId) {
+        sessionId = crypto.randomUUID()
+        localStorage.setItem('praxioSessionId', sessionId)
+      }
+    } catch {
+      sessionId = 'test-harness'
+    }
     try {
       res = await fetch('/api/generate', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ concept }),
+        body: JSON.stringify({ concept, sessionId }),
       })
       data = await res.json()
     } catch (err) {

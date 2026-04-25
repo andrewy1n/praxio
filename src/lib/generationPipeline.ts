@@ -479,18 +479,18 @@ export async function runGenerationPipeline(
           'behavioral path: static validation exhausted',
           options?.onAttempt,
         )
-    console.log('[generation trace]', JSON.stringify(traceForConsoleLog(trace)))
-    return {
-      designDoc: doc,
-      simCode: code,
-      verification: ver,
-      retries: trace.pass2GenerationCount,
-      fromTemplate: true,
-      trace,
+      console.log('[generation trace]', JSON.stringify(traceForConsoleLog(trace)))
+      return {
+        designDoc: doc,
+        simCode: code,
+        verification: ver,
+        retries: trace.pass2GenerationCount,
+        fromTemplate: true,
+        trace,
+      }
     }
-  }
 
-  simCode = roundSim
+    simCode = roundSim
     verification = await verifySimBehavior(simCode, designDoc)
     behaviorRounds++
     trace.behavioralVerificationRetries = behaviorRounds

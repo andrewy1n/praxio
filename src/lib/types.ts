@@ -408,6 +408,8 @@ export type IframeMessage =
 
 export type GenerateRequest = {
   concept: string
+  /** Anonymous session id from localStorage; required for DB-backed workspaces. */
+  sessionId: string
 }
 
 export type GenerateResponse = {
@@ -416,6 +418,8 @@ export type GenerateResponse = {
   verification: VerificationReport
   retries: number
   fromTemplate: boolean
+  /** Set when workspace was persisted to MongoDB. */
+  workspaceId?: string
 }
 
 /** Pass 1 failure diagnostics (local JSON extract + Zod). */
@@ -463,6 +467,8 @@ export type StageRequest = {
   manifest: Manifest
   designDoc: DesignDoc
   sessionId: string
+  /** When omitted or `dev`, tutor routes skip MongoDB (e.g. test harness). */
+  workspaceId?: string
   activeSocraticStepId?: string
 }
 
@@ -483,15 +489,118 @@ export type SpeakRequest = StageRequest & {
   appliedToolCalls: AppliedToolCall[]
 }
 
+// ─── Workspace API (planning/api_contracts.md) ───────────────────────────────
+
+export type WorkspaceStatus = 'in_progress' | 'completed'
+
+export type ListWorkspacesQuery = {
+  sessionId: string
+  limit?: number
+}
+
+export type WorkspaceListItem = {
+  workspaceId: string
+  concept: string
+  domain: DesignDoc['domain']
+  renderer: DesignDoc['renderer']
+  status: WorkspaceStatus
+  createdAt: string
+  lastActiveAt: string
+  completedAt?: string
+  completionSummary?: string
+}
+
+export type ListWorkspacesResponse = {
+  items: WorkspaceListItem[]
+}
+
+export type GetWorkspaceParams = {
+  workspaceId: string
+}
+
+export type SessionCompletionState = {
+  isComplete: boolean
+  completedStepIds: string[]
+  completedAt?: number
+  summary?: {
+    synthesis: string
+    transferQuestion: string
+  }
+}
+
+export type GetWorkspaceResponse = {
+  workspace: {
+    workspaceId: string
+    sessionId: string
+    concept: string
+    domain: DesignDoc['domain']
+    renderer: DesignDoc['renderer']
+    designDoc: DesignDoc
+    status: WorkspaceStatus
+    createdAt: string
+    lastActiveAt: string
+    completedAt?: string
+    simCode: string
+  }
+  branch?: {
+    branchId: string
+    name: string
+    checkpoints: Checkpoint[]
+    conversationHistory: TutorMessage[]
+    currentSocraticStepId?: string
+  }
+  completion?: SessionCompletionState
+}
+
+export type UpdateWorkspaceRequest = {
+  sessionId: string
+  status?: WorkspaceStatus
+  lastActiveAt?: string
+  completedAt?: string
+  completionSummary?: string
+  /** Replaces completed step ids when provided (merge on server). */
+  completedStepIds?: string[]
+}
+
+export type UpdateWorkspaceResponse = {
+  ok: true
+}
+
+export type SessionLearningArtifact = {
+  sessionId: string
+  workspaceId: string
+  completedStepIds: string[]
+  keyMoments: Array<{
+    stepId: string
+    interactionKind: DesignDoc['socratic_plan'][number]['interaction']['kind']
+    observedEvent: string
+    timestamp: number
+  }>
+  finalSynthesis: string
+  transferQuestion: string
+  transferResponse?: string
+  createdAt: Date
+}
+
 // ─── MongoDB Schemas ──────────────────────────────────────────────────────────
 
 export type Workspace = {
+  workspaceId: string
   sessionId: string
   concept: string
-  domain: string
-  renderer: 'p5' | 'canvas2d' | 'jsxgraph' | 'matter'
+  domain: DesignDoc['domain']
+  renderer: DesignDoc['renderer']
   designDoc: DesignDoc
+  simCode: string
+  status: WorkspaceStatus
   createdAt: Date
+  lastActiveAt: Date
+  completedAt?: Date
+  completionSummary?: string
+  completedStepIds: string[]
+  completion?: SessionCompletionState
+  /** Persisted synthesis / transfer for resume; optional until session completes. */
+  learningArtifact?: SessionLearningArtifact
 }
 
 export type Checkpoint = {
@@ -502,11 +611,14 @@ export type Checkpoint = {
 }
 
 export type Branch = {
+  branchId: string
   workspaceId: string
   sessionId: string
   name: string
   checkpoints: Checkpoint[]
   conversationHistory: TutorMessage[]
+  /** Tracks UI-selected step for completion transitions. */
+  currentSocraticStepId?: string
   createdAt: Date
 }
 

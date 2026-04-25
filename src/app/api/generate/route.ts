@@ -2,16 +2,22 @@ import {
   GenerationFailedError,
   runGenerationPipeline,
 } from '@/lib/generationPipeline'
+import { createWorkspaceWithMainBranch } from '@/lib/workspaceDb'
 import type { NextRequest } from 'next/server'
+import { randomUUID } from 'crypto'
 
 export async function POST(req: NextRequest) {
   const streamProgress = req.nextUrl.searchParams.get('stream') === '1'
   try {
     const body = await req.json()
     const concept = typeof body?.concept === 'string' ? body.concept.trim() : ''
+    const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
 
     if (!concept) {
       return Response.json({ error: 'Concept is required', phase: 'pass1' }, { status: 400 })
+    }
+    if (!sessionId) {
+      return Response.json({ error: 'sessionId is required', phase: 'pass1' }, { status: 400 })
     }
 
     const debug =
@@ -34,7 +40,33 @@ export async function POST(req: NextRequest) {
                 onAttempt: (attempt) => write({ type: 'attempt', attempt }),
               })
               const { trace, ...rest } = result
-              write({ type: 'result', result: debug ? { ...rest, trace } : rest })
+              let workspaceId: string | undefined
+              if (process.env.MONGODB_URI) {
+                try {
+                  workspaceId = randomUUID()
+                  await createWorkspaceWithMainBranch({
+                    workspaceId,
+                    sessionId,
+                    concept,
+                    designDoc: rest.designDoc,
+                    simCode: rest.simCode,
+                  })
+                } catch (persistErr) {
+                  console.error('[api/generate] workspace persist', persistErr)
+                  write({
+                    type: 'error',
+                    status: 503,
+                    error: {
+                      error: 'Failed to save workspace',
+                      phase: 'pass1',
+                    },
+                  })
+                  controller.close()
+                  return
+                }
+              }
+              const payload = { ...rest, ...(workspaceId ? { workspaceId } : {}) }
+              write({ type: 'result', result: debug ? { ...payload, trace } : payload })
               controller.close()
             } catch (error) {
               if (error instanceof GenerationFailedError) {
@@ -65,11 +97,33 @@ export async function POST(req: NextRequest) {
     const result = await runGenerationPipeline(concept, { debug })
     const { trace, ...rest } = result
 
-    if (debug) {
-      return Response.json({ ...rest, trace })
+    let workspaceId: string | undefined
+    if (process.env.MONGODB_URI) {
+      try {
+        workspaceId = randomUUID()
+        await createWorkspaceWithMainBranch({
+          workspaceId,
+          sessionId,
+          concept,
+          designDoc: rest.designDoc,
+          simCode: rest.simCode,
+        })
+      } catch (persistErr) {
+        console.error('[api/generate] workspace persist', persistErr)
+        return Response.json(
+          { error: 'Failed to save workspace', phase: 'pass1' },
+          { status: 503 },
+        )
+      }
     }
 
-    return Response.json(rest)
+    const payload = { ...rest, ...(workspaceId ? { workspaceId } : {}) }
+
+    if (debug) {
+      return Response.json({ ...payload, trace })
+    }
+
+    return Response.json(payload)
   } catch (error) {
     if (error instanceof GenerationFailedError) {
       const status =

@@ -7,6 +7,7 @@ import TutorPanel from '@/components/TutorPanel'
 import type {
   AgentCmd,
   AppliedToolCall,
+  GetWorkspaceResponse,
   IframeMessage,
   Manifest,
   SimEvent,
@@ -305,19 +306,64 @@ export default function WorkspacePage() {
   const [sessionId] = useState(() => typeof window === 'undefined' ? 'demo' : getSessionId())
 
   useEffect(() => {
-    const data: GenerateResponse = workspaceId === 'dev'
-      ? DEV_FIXTURE
-      : (() => { const raw = sessionStorage.getItem(`workspace:${workspaceId}`); return raw ? JSON.parse(raw) : null })()
-    if (!data) return
-    queueMicrotask(() => {
-      setDesignDoc(data.designDoc)
-      setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
-      setPendingEvents([])
-      setAgentCommands([])
-      setSimCode(data.simCode)
-      setRenderer(data.designDoc.renderer)
-    })
-  }, [workspaceId])
+    if (workspaceId === 'dev') {
+      const data = DEV_FIXTURE
+      queueMicrotask(() => {
+        setDesignDoc(data.designDoc)
+        setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
+        setPendingEvents([])
+        setAgentCommands([])
+        setSimCode(data.simCode)
+        setRenderer(data.designDoc.renderer)
+      })
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/workspaces/${encodeURIComponent(workspaceId)}?sessionId=${encodeURIComponent(sessionId)}`,
+        )
+        if (res.ok) {
+          const payload = (await res.json()) as GetWorkspaceResponse
+          if (cancelled) return
+          const w = payload.workspace
+          setDesignDoc(w.designDoc)
+          setSimCode(w.simCode)
+          setRenderer(w.renderer)
+          setActiveStepId(
+            payload.branch?.currentSocraticStepId
+              ?? w.designDoc.socratic_plan[0]?.id
+              ?? null,
+          )
+          if (payload.branch?.conversationHistory?.length) {
+            setMessages(payload.branch.conversationHistory)
+          }
+          setPendingEvents([])
+          setAgentCommands([])
+          return
+        }
+      } catch {
+        /* sessionStorage fallback */
+      }
+      const raw = sessionStorage.getItem(`workspace:${workspaceId}`)
+      const data: GenerateResponse | null = raw ? JSON.parse(raw) as GenerateResponse : null
+      if (!data || cancelled) return
+      queueMicrotask(() => {
+        setDesignDoc(data.designDoc)
+        setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
+        setPendingEvents([])
+        setAgentCommands([])
+        setSimCode(data.simCode)
+        setRenderer(data.designDoc.renderer)
+      })
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId, sessionId])
 
   const handleManifest = useCallback((m: Manifest) => setManifest(m), [])
 
@@ -360,6 +406,7 @@ export default function WorkspacePage() {
       manifest,
       designDoc,
       sessionId,
+      workspaceId: workspaceId === 'dev' ? 'dev' : workspaceId,
       activeSocraticStepId: activeStepId || undefined,
     }
 

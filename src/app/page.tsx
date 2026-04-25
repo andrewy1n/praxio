@@ -7,6 +7,16 @@ import type { GenerationAttemptPhase } from '@/lib/generationPipeline'
 
 type Step = 'pending' | 'active' | 'done' | 'failed'
 
+function getSessionId(): string {
+  if (typeof window === 'undefined') return ''
+  let id = localStorage.getItem('sessionId')
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem('sessionId', id)
+  }
+  return id
+}
+
 const STEPS = [
   { id: 'p1', label: 'Pass 1 — concept -> design doc' },
   { id: 'dc', label: 'Design doc consistency checks' },
@@ -142,7 +152,7 @@ export default function LandingPage() {
       const res = await fetch('/api/generate?stream=1', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ concept }),
+        body: JSON.stringify({ concept, sessionId: getSessionId() }),
       })
 
       if (!res.body) {
@@ -221,8 +231,10 @@ export default function LandingPage() {
       if (stepsRef.current) stepsRef.current(buildStepStates(STEPS.length))
       await new Promise(r => setTimeout(r, 250))
 
-      const workspaceId = crypto.randomUUID()
-      sessionStorage.setItem(`workspace:${workspaceId}`, JSON.stringify(finalResult))
+      const workspaceId = finalResult.workspaceId ?? crypto.randomUUID()
+      if (!finalResult.workspaceId) {
+        sessionStorage.setItem(`workspace:${workspaceId}`, JSON.stringify(finalResult))
+      }
       router.push(`/workspace/${workspaceId}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
