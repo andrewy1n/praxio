@@ -127,6 +127,11 @@
     parent.postMessage({ type: 'REGION_POSITIONS', regions: positions }, '*')
   }
 
+  function sendAnnotations() {
+    // Always send (even if empty) so parent can clear overlay.
+    parent.postMessage({ type: 'ANNOTATIONS', annotations: { ...annotations } }, '*')
+  }
+
   // ── Agent commands from parent ─────────────────────────────────────────────
 
   window.addEventListener('message', (e) => {
@@ -175,9 +180,11 @@
         break
       case 'annotate':
         annotations[msg.region] = msg.text
+        sendAnnotations()
         break
       case 'clear_annotations':
         Object.keys(annotations).forEach(k => delete annotations[k])
+        sendAnnotations()
         break
       case 'checkpoint': {
         const id = 'ckpt_' + Math.random().toString(36).slice(2, 8)
@@ -253,6 +260,7 @@
     lockedParams.clear()
     Object.keys(regions).forEach(k => delete regions[k])
     events.length = 0
+    Object.keys(annotations).forEach(k => delete annotations[k])
     updateFn = null
     renderFn = null
     launchFn = null
@@ -268,6 +276,7 @@
       const factory = new Function('runtime', executableCode)
       factory(runtime)
       sendManifest()
+      sendAnnotations()
       try {
         rendererContext = buildRendererContext()
       } catch (err) {

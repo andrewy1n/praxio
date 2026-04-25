@@ -398,6 +398,7 @@ export type IframeMessage =
   | { type: 'PARAM_CHANGED';    param: string; from: number; to: number; sim_state: Record<string, number> }
   | { type: 'SIM_EVENT';        event: string; payload: Record<string, unknown>; timestamp: number }
   | { type: 'REGION_POSITIONS'; regions: Record<string, { x: number; y: number } | null> }
+  | { type: 'ANNOTATIONS';      annotations: Record<string, string> }
   | { type: 'CHECKPOINT_SAVED'; id: string }
   | { type: 'SIM_PAUSED' }
   | { type: 'SIM_RESUMED' }

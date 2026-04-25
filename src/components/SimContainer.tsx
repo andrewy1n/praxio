@@ -30,6 +30,7 @@ export default function SimContainer({
   const [manifest, setManifest] = useState<Manifest | null>(null)
   const [paramValues, setParamValues] = useState<Record<string, number>>({})
   const [regionPositions, setRegionPositions] = useState<Record<string, { x: number; y: number }>>({})
+  const [annotations, setAnnotations] = useState<Record<string, string>>({})
   const [predictionPoints, setPredictionPoints] = useState<Array<{ x: number; y: number }>>([])
   const [hypothesisValue, setHypothesisValue] = useState('')
 
@@ -68,6 +69,9 @@ export default function SimContainer({
           Object.entries(msg.regions)
             .filter((entry): entry is [string, { x: number; y: number }] => Boolean(entry[1])),
         ))
+      }
+      if (msg.type === 'ANNOTATIONS') {
+        setAnnotations(msg.annotations || {})
       }
       onMessage(msg)
     }
@@ -108,12 +112,16 @@ export default function SimContainer({
     })
   }, [activeStep, sendCmd])
 
+  const hasAnnotations = Object.keys(annotations).length > 0
   useEffect(() => {
     sendCmd({
       type: 'TRACK_REGIONS',
-      enabled: interaction?.kind === 'click_to_query' || Boolean(staging?.annotate?.length),
+      enabled:
+        interaction?.kind === 'click_to_query'
+        || Boolean(staging?.annotate?.length)
+        || hasAnnotations,
     })
-  }, [interaction?.kind, staging?.annotate?.length, sendCmd])
+  }, [interaction?.kind, staging?.annotate?.length, hasAnnotations, sendCmd])
 
   const handleSlider = (name: string, value: number) => {
     setParamValues(prev => ({ ...prev, [name]: value }))
@@ -211,6 +219,33 @@ export default function SimContainer({
         title="simulation"
         onLoad={() => { if (simCodeRef.current) sendLoadSim(simCodeRef.current) }}
       />
+      {Object.keys(annotations).length > 0 && (
+        <div className="absolute inset-0 z-20 pointer-events-none">
+          {Object.entries(annotations).map(([region, text]) => {
+            const pos = regionPositions[region]
+            if (!pos) return null
+            return (
+              <div
+                key={region}
+                className="absolute max-w-[280px] rounded-lg border px-3 py-2 text-xs shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur"
+                style={{
+                  left: pos.x + 12,
+                  top: pos.y,
+                  transform: 'translateY(-50%)',
+                  background: 'rgba(10, 10, 10, 0.88)',
+                  borderColor: 'rgba(96, 165, 250, 0.9)',
+                  color: 'rgba(219, 234, 254, 1)',
+                }}
+              >
+                <strong style={{ display: 'block', color: 'rgba(147, 197, 253, 1)', marginBottom: 4 }}>
+                  {region}
+                </strong>
+                <span style={{ whiteSpace: 'pre-wrap' }}>{text}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         width={800}
@@ -234,24 +269,45 @@ export default function SimContainer({
         </svg>
       )}
       {manifest && manifest.params.length > 0 && (
-        <div className="absolute top-14 left-4 w-52 bg-zinc-950/85 backdrop-blur border border-zinc-700/60 rounded-lg px-4 py-3 flex flex-col gap-4 z-10">
-          <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">parameters</span>
+        <div
+          className="absolute left-4 top-4 z-20 min-w-[228px] overflow-hidden rounded-[var(--r)] border bg-[rgba(255,255,255,0.97)] shadow-[var(--shadow-lg)]"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <div
+            className="border-b px-3 py-2 font-[family-name:var(--font-dm-mono)] text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--ink3)]"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            Parameters
+          </div>
           {manifest.params.map(param => (
             <div
               key={param.name}
-              className={`flex flex-col gap-1.5 rounded-md border p-2 ${
-                highlightedParams.has(param.name)
-                  ? 'border-yellow-400/70 bg-yellow-400/10'
-                  : 'border-transparent'
-              } ${lockedParams.has(param.name) ? 'opacity-50' : ''}`}
+              className="relative flex items-center gap-2 px-3 py-2"
+              style={{
+                background: highlightedParams.has(param.name) ? 'var(--accent-light)' : 'transparent',
+                opacity: lockedParams.has(param.name) ? 0.45 : 1,
+              }}
             >
-              <div className="flex justify-between text-xs">
-                <span className="text-zinc-400">{param.label}</span>
-                <span className="tabular-nums text-zinc-200 font-mono">
-                  {(paramValues[param.name] ?? param.default).toFixed(1)}
-                  {param.unit ? ` ${param.unit}` : ''}
-                </span>
-              </div>
+              {highlightedParams.has(param.name) ? (
+                <div
+                  className="absolute left-0 top-0 h-full w-[2px]"
+                  style={{ background: 'var(--accent)' }}
+                />
+              ) : null}
+
+              <span
+                className="flex min-w-[90px] items-center gap-1.5 text-[12px] font-medium"
+                style={{ color: highlightedParams.has(param.name) ? 'var(--accent)' : 'var(--ink2)' }}
+              >
+                {lockedParams.has(param.name) ? (
+                  <svg width="10" height="12" viewBox="0 0 10 12" fill="none" aria-hidden>
+                    <rect x="1" y="5" width="8" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+                    <path d="M3 5V3.5a2 2 0 1 1 4 0V5" stroke="currentColor" strokeWidth="1.3" />
+                  </svg>
+                ) : null}
+                {param.label}
+              </span>
+
               <input
                 type="range"
                 min={param.min}
@@ -260,9 +316,18 @@ export default function SimContainer({
                 value={paramValues[param.name] ?? param.default}
                 onChange={e => handleSlider(param.name, parseFloat(e.target.value))}
                 disabled={lockedParams.has(param.name)}
-                className="w-full accent-orange-400"
+                className="min-w-0 flex-1"
+                style={{ accentColor: 'var(--accent)' }}
               />
-            </div>
+
+              <span
+                className="min-w-[40px] text-right font-[family-name:var(--font-dm-mono)] text-[11px] font-medium tabular-nums"
+                style={{ color: 'var(--ink3)' }}
+              >
+                {(paramValues[param.name] ?? param.default).toFixed(1)}
+                {param.unit ? `${param.unit}` : ''}
+              </span>
+              </div>
           ))}
         </div>
       )}
