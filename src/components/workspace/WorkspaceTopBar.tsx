@@ -41,19 +41,19 @@ export default function WorkspaceTopBar({
         className="flex shrink-0 items-center gap-1.5 rounded-md outline-none ring-offset-2 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[color:var(--accent-border)]"
         title="New concept"
       >
-        <div className="flex h-6 w-6 items-center justify-center rounded-[6px] bg-[color:var(--accent)]">
-          <svg width="13" height="13" viewBox="0 0 12 12" fill="none" aria-hidden>
-            <path
-              d="M2 10 L6 2 L10 10"
-              stroke="white"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path d="M3.5 7.5 L8.5 7.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </div>
-        <span className="text-[15px] font-semibold tracking-tight text-[color:var(--ink)]">Praxio</span>
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 22 22"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ borderRadius: '5px' }}
+        >
+          <rect width="22" height="22" fill="var(--accent)" />
+          <circle cx="11" cy="11" r="4.5" fill="white" fillOpacity="0.9" />
+          <rect x="7.5" y="7.5" width="7" height="7" rx="1.5" fill="white" fillOpacity="0.8" transform="rotate(45 11 11)" />
+        </svg>
+        <span className="text-[14px] font-semibold tracking-[-0.01em] text-[color:var(--ink)]">Praxio</span>
       </Link>
 
       <div className="h-5 w-px shrink-0 bg-[color:var(--border)]" />
