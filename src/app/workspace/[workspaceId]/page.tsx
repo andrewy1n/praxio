@@ -1,9 +1,12 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import SimContainer from '@/components/SimContainer'
-import TutorPanel from '@/components/TutorPanel'
+import WorkspaceTopBar from '@/components/workspace/WorkspaceTopBar'
+import WorkspaceTutorStrip from '@/components/workspace/WorkspaceTutorStrip'
+import type { TutorStripState } from '@/components/workspace/WorkspaceTutorStrip'
+import SimControlsOverlay from '@/components/SimControlsOverlay'
 import type {
   AgentCmd,
   AppliedToolCall,
@@ -53,181 +56,16 @@ function toolCallToAgentCmd(toolCall: { toolName: string; input: Record<string, 
   }
 }
 
-const DEV_FIXTURE: GenerateResponse = {
-  designDoc: {
-    concept: 'projectile motion',
-    domain: 'physics',
-    renderer: 'p5',
-    params: [
-      { name: 'launch_angle', range: [0, 90], default: 45, label: 'Launch Angle', unit: '°' },
-      { name: 'initial_velocity', range: [1, 50], default: 20, label: 'Initial Velocity', unit: 'm/s' },
-      { name: 'gravity', range: [1, 20], default: 9.8, label: 'Gravity', unit: 'm/s²' },
-    ],
-    episodic: true,
-    governing_equations: ['x = v₀·cos(θ)·t', 'y = v₀·sin(θ)·t − ½g·t²'],
-    emit_events: ['launch', 'land'],
-    register_regions: ['apex', 'landing'],
-    initial_staging: { locked: ['gravity'], highlighted: ['launch_angle'] },
-    verification: {
-      summary: '30° and 60° produce similar ranges; 45° is near maximum range.',
-      probes: [
-        { id: 'angle_30', description: '30 degrees', params: { launch_angle: 30, initial_velocity: 20, gravity: 9.8 }, expected_metrics: ['range_m'] },
-        { id: 'angle_45', description: '45 degrees', params: { launch_angle: 45, initial_velocity: 20, gravity: 9.8 }, expected_metrics: ['range_m'] },
-        { id: 'angle_60', description: '60 degrees', params: { launch_angle: 60, initial_velocity: 20, gravity: 9.8 }, expected_metrics: ['range_m'] },
-      ],
-      invariants: [
-        { kind: 'approximately_equal', id: 'range_symmetry', description: '30° and 60° give similar ranges', left_probe: 'angle_30', right_probe: 'angle_60', metric: 'range_m', tolerance_percent: 8 },
-        { kind: 'near_maximum', id: 'max_at_45', description: '45° is near maximum range', target_probe: 'angle_45', comparison_probes: ['angle_30', 'angle_60'], metric: 'range_m', tolerance_percent: 5 },
-      ],
-    },
-    socratic_plan: [
-      {
-        id: 'predict_range',
-        learning_goal: 'Commit to an expectation before observing the trajectory.',
-        question: 'Before you launch it, what range do you predict at this angle?',
-        interaction: { kind: 'numeric_hypothesis', metric: 'range_m', unit: 'm' },
-        staging: { lock: ['gravity'], highlight: ['launch_angle'] },
-        expected_observation: 'The student records a concrete range estimate.',
-        followup_if_correct: 'Ask why that estimate fits the arc they expect.',
-        followup_if_surprised: 'Use the mismatch as the next comparison point.',
-        exit_condition: 'A range estimate has been submitted.',
-      },
-      {
-        id: 'compare_angles',
-        learning_goal: 'Discover that increasing launch angle past 45 degrees can shorten range.',
-        question: 'Now drag the angle past 45 degrees. What changes besides height?',
-        interaction: { kind: 'manipulate_param', params: ['launch_angle'] },
-        staging: { highlight: ['launch_angle'] },
-        expected_observation: 'The path gets taller while range eventually decreases.',
-        followup_if_correct: 'Ask what horizontal velocity lost as angle increased.',
-        followup_if_surprised: 'Ask them to compare the landing point with their prediction.',
-        exit_condition: 'The launch angle has been changed and the landing point observed.',
-      },
-      {
-        id: 'inspect_apex',
-        learning_goal: 'Connect the apex to vertical velocity reaching zero.',
-        question: 'Click the part of the path where the vertical motion changes direction.',
-        interaction: { kind: 'click_to_query', regions: ['apex'] },
-        staging: { annotate: [{ region: 'apex', text: 'What is vertical velocity here?' }] },
-        expected_observation: 'The student focuses on the apex region.',
-        followup_if_correct: 'Ask what horizontal velocity is still doing at the apex.',
-        followup_if_surprised: 'Ask which velocity component changed direction there.',
-        exit_condition: 'The apex region has been selected.',
-      },
-    ],
-  },
-  simCode: `
-const getAngle    = runtime.registerParam('launch_angle',     { min: 0,  max: 90, default: 45,  label: 'Launch Angle',    unit: '°',    step: 1   })
-const getVelocity = runtime.registerParam('initial_velocity', { min: 1,  max: 50, default: 20,  label: 'Initial Velocity', unit: 'm/s',  step: 0.5 })
-const getGravity  = runtime.registerParam('gravity',          { min: 1,  max: 20, default: 9.8, label: 'Gravity',          unit: 'm/s²', step: 0.1 })
-
-const regionPositions = {
-  apex: { x: 0, y: 0 },
-  landing: { x: 0, y: 0 },
-}
-
-runtime.registerRegion('apex', { getPosition: () => regionPositions.apex })
-runtime.registerRegion('landing', { getPosition: () => regionPositions.landing })
-runtime.registerEvent('launch')
-runtime.registerEvent('land')
-
-new p5(function(p) {
-  const SCALE = 8
-  const OX    = 80
-  let simT    = 0
-  let lastMs  = 0
-
-  p.setup = function() {
-    p.createCanvas(p.windowWidth, p.windowHeight)
-    p.textFont('monospace')
-    p.textSize(11)
-    lastMs = p.millis()
-  }
-
-  p.windowResized = function() {
-    p.resizeCanvas(p.windowWidth, p.windowHeight)
-  }
-
-  p.draw = function() {
-    p.background(10)
-
-    const angle = getAngle() * Math.PI / 180
-    const v0    = getVelocity()
-    const g     = getGravity()
-    const OY    = p.height - 80
-
-    const T = (2 * v0 * Math.sin(angle)) / g
-    const R = v0 * Math.cos(angle) * T
-
-    const now = p.millis()
-    simT += (now - lastMs) / 1000
-    lastMs = now
-    if (simT > T + 0.4) simT = 0
-
-    p.stroke(55)
-    p.strokeWeight(1)
-    p.line(OX - 20, OY, OX + R * SCALE + 60, OY)
-
-    p.stroke(255, 160, 60, 80)
-    p.strokeWeight(1.5)
-    p.noFill()
-    p.beginShape()
-    for (let i = 0; i <= 120; i++) {
-      const t = (i / 120) * T
-      p.vertex(OX + v0 * Math.cos(angle) * t * SCALE, OY - (v0 * Math.sin(angle) * t - 0.5 * g * t * t) * SCALE)
-    }
-    p.endShape()
-
-    if (simT >= 0 && simT <= T) {
-      const bx = OX + v0 * Math.cos(angle) * simT * SCALE
-      const by = OY - (v0 * Math.sin(angle) * simT - 0.5 * g * simT * simT) * SCALE
-      p.fill(255, 220, 100)
-      p.noStroke()
-      p.circle(bx, by, 14)
-    }
-
-    const tApex = v0 * Math.sin(angle) / g
-    const apexX = OX + v0 * Math.cos(angle) * tApex * SCALE
-    const apexY = OY - (v0 * Math.sin(angle) * tApex - 0.5 * g * tApex * tApex) * SCALE
-    regionPositions.apex = { x: apexX, y: apexY }
-    p.fill(100, 180, 255)
-    p.noStroke()
-    p.circle(apexX, apexY, 7)
-    p.fill(100, 180, 255, 180)
-    p.text('apex', apexX + 6, apexY - 4)
-
-    const landX = OX + R * SCALE
-    regionPositions.landing = { x: landX, y: OY }
-    p.fill(100, 255, 140)
-    p.noStroke()
-    p.circle(landX, OY, 7)
-    p.fill(100, 255, 140, 180)
-    p.text('R = ' + R.toFixed(1) + ' m', landX + 6, OY - 4)
-
-    p.fill(220)
-    p.noStroke()
-    p.circle(OX, OY, 10)
-
-    p.stroke(200, 200, 200, 70)
-    p.strokeWeight(1)
-    p.noFill()
-    p.arc(OX, OY, 52, 52, -angle, 0)
-    p.noStroke()
-    p.fill(200, 200, 200, 160)
-    p.text(getAngle().toFixed(0) + '°', OX + 30, OY - 8)
-  }
-})
-`,
-  verification: {
-    passed: true,
-    checks: [
-      { invariantId: 'range_symmetry', passed: true, message: '30° and 60° give similar ranges: dev fixture', observed: { left: 34.3, right: 34.3 } },
-      { invariantId: 'max_at_45', passed: true, message: '45° is near maximum range: dev fixture', observed: { angle_45: 40.8, angle_30: 34.3, angle_60: 34.3 } },
-    ],
-    probeResults: [],
-  },
-  retries: 0,
-  fromTemplate: false,
+async function loadProjectileMotionPreset(): Promise<{ designDoc: DesignDoc; simCode: string }> {
+  const [designDocRes, simRes] = await Promise.all([
+    fetch('/presets/projectile-motion/design-doc.json'),
+    fetch('/presets/projectile-motion/sim.js'),
+  ])
+  if (!designDocRes.ok) throw new Error(`Failed to load design doc: ${designDocRes.status}`)
+  if (!simRes.ok) throw new Error(`Failed to load sim: ${simRes.status}`)
+  const designDoc = await designDocRes.json() as DesignDoc
+  const simCode = await simRes.text()
+  return { designDoc, simCode }
 }
 
 function getSessionId(): string {
@@ -237,59 +75,6 @@ function getSessionId(): string {
     localStorage.setItem('sessionId', id)
   }
   return id
-}
-
-function TopBar({ concept }: { concept: string }) {
-  return (
-    <div className="h-11 flex items-center px-4 gap-3 bg-zinc-900 border-b border-zinc-800 shrink-0 z-10">
-      <span className="text-sm font-semibold text-zinc-100">Praxio</span>
-      <div className="w-px h-4 bg-zinc-700" />
-      <span className="text-sm text-zinc-400 flex-1 truncate">{concept}</span>
-      <span className="text-xs font-mono text-zinc-500 bg-zinc-800 border border-zinc-700 rounded-full px-2.5 py-0.5">
-        ◆ main · cp 0
-      </span>
-    </div>
-  )
-}
-
-function SocraticPlanPanel({
-  designDoc,
-  activeStepId,
-  onSelectStep,
-}: {
-  designDoc: DesignDoc | null
-  activeStepId: string | null
-  onSelectStep: (stepId: string) => void
-}) {
-  const plan = designDoc?.socratic_plan || []
-  const activeStep = plan.find(step => step.id === activeStepId) || plan[0]
-
-  if (!activeStep) return null
-
-  return (
-    <div className="absolute top-4 right-4 z-20 w-80 rounded-xl border border-zinc-700/70 bg-zinc-950/90 backdrop-blur p-4 shadow-2xl">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <span className="text-[10px] uppercase tracking-widest text-zinc-500">Socratic step</span>
-        <select
-          value={activeStep.id}
-          onChange={event => onSelectStep(event.target.value)}
-          className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
-        >
-          {plan.map((step, index) => (
-            <option key={step.id} value={step.id}>
-              {index + 1}. {step.id}
-            </option>
-          ))}
-        </select>
-      </div>
-      <p className="text-sm text-zinc-100 leading-snug">{activeStep.question}</p>
-      <p className="mt-2 text-xs text-zinc-500">{activeStep.learning_goal}</p>
-      <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-400">
-        <span>{activeStep.interaction.kind}</span>
-        <span>{activeStep.exit_condition}</span>
-      </div>
-    </div>
-  )
 }
 
 export default function WorkspacePage() {
@@ -302,57 +87,213 @@ export default function WorkspacePage() {
   const [pendingEvents, setPendingEvents] = useState<SimEvent[]>([])
   const [agentCommands, setAgentCommands] = useState<AgentCmd[]>([])
   const [activeStepId, setActiveStepId] = useState<string | null>(null)
-  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [completedStepIds, setCompletedStepIds] = useState<string[]>([])
+  const [tutorState, setTutorState] = useState<TutorStripState>('idle')
+  const [simPhase, setSimPhase] = useState<'idle' | 'active' | 'done'>('idle')
+  const [paused, setPaused] = useState(false)
+  const [simEventHint, setSimEventHint] = useState<string | null>(null)
   const [sessionId] = useState(() => typeof window === 'undefined' ? 'demo' : getSessionId())
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const tutorTurnInFlightRef = useRef(false)
+  const speechRecRef = useRef<any>(null)
 
-  useEffect(() => {
-    if (workspaceId === 'dev') {
-      const data = DEV_FIXTURE
-      queueMicrotask(() => {
-        setDesignDoc(data.designDoc)
-        setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
-        setPendingEvents([])
-        setAgentCommands([])
-        setManifest(null)
-        setSimCode(data.simCode)
-        setRenderer(data.designDoc.renderer)
-      })
+  const advanceStep = useCallback(() => {
+    if (!designDoc?.socratic_plan?.length) return
+    const plan = designDoc.socratic_plan
+    const currentIdx = activeStepId ? plan.findIndex(s => s.id === activeStepId) : -1
+    const nextId = currentIdx >= 0 ? (plan[currentIdx + 1]?.id ?? null) : (plan[0]?.id ?? null)
+    if (nextId) setActiveStepId(nextId)
+  }, [activeStepId, designDoc])
+
+  const stopTutorAudio = useCallback(() => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.pause()
+    audio.src = ''
+    audioRef.current = null
+  }, [])
+
+  const speakTutorText = useCallback(async (text: string) => {
+    const prompt = text.trim()
+    if (!prompt) return
+
+    stopTutorAudio()
+
+    const ttsRes = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: prompt }),
+    })
+
+    if (!ttsRes.ok) {
+      const debug = await ttsRes.text().catch(() => '')
+      console.warn('[tts] failed', { status: ttsRes.status, debug })
       return
     }
 
+    const audioBlob = await ttsRes.blob()
+    const url = URL.createObjectURL(audioBlob)
+    const audio = new Audio(url)
+    audioRef.current = audio
+
+    const cleanup = () => {
+      if (audioRef.current === audio) audioRef.current = null
+      URL.revokeObjectURL(url)
+    }
+
+    audio.onended = cleanup
+    audio.onerror = cleanup
+
+    try {
+      await audio.play()
+    } catch (err) {
+      console.warn('[tts] playback blocked or failed', err)
+      cleanup()
+    }
+  }, [stopTutorAudio])
+
+  const runTutorTurn = useCallback(async (args: {
+    nextMessages: TutorMessage[]
+    events: SimEvent[]
+  }) => {
+    if (!manifest || !designDoc) return
+    if (tutorTurnInFlightRef.current) return
+    tutorTurnInFlightRef.current = true
+
+    try {
+      stopTutorAudio()
+      setTutorState('processing')
+
+      const stageBody = {
+        messages: args.nextMessages,
+        pendingEvents: args.events,
+        manifest,
+        designDoc,
+        sessionId,
+        workspaceId: workspaceId === 'dev' ? 'dev' : workspaceId,
+        activeSocraticStepId: activeStepId || undefined,
+      }
+
+      const stageRes = await fetch('/api/tutor/stage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stageBody),
+      })
+      if (!stageRes.ok) {
+        console.warn('[tutor] stage failed', { status: stageRes.status, body: await stageRes.text().catch(() => '') })
+        setTutorState('idle')
+        return
+      }
+
+      const stageData = await stageRes.json() as { toolCalls: Array<{ toolName: string; input: Record<string, unknown> }> }
+      const appliedToolCalls: AppliedToolCall[] = stageData.toolCalls.map(toolCall => ({
+        ...toolCall,
+        result: null,
+      }))
+      const commands = stageData.toolCalls
+        .map(toolCallToAgentCmd)
+        .filter((cmd): cmd is AgentCmd => Boolean(cmd))
+      setAgentCommands(prev => [...prev, ...commands])
+
+      const speakRes = await fetch('/api/tutor/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...stageBody, appliedToolCalls }),
+      })
+      if (!speakRes.ok) {
+        console.warn('[tutor] speak failed', { status: speakRes.status, body: await speakRes.text().catch(() => '') })
+        setTutorState('idle')
+        return
+      }
+
+      const nextAssistantBase: TutorMessage[] = [...args.nextMessages]
+      let tutorText = ''
+      if (speakRes.body) {
+        const reader = speakRes.body.getReader()
+        const decoder = new TextDecoder()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          tutorText += decoder.decode(value, { stream: true })
+          setMessages([...nextAssistantBase, { role: 'assistant', content: tutorText }])
+        }
+        tutorText += decoder.decode()
+      } else {
+        tutorText = await speakRes.text()
+      }
+
+      setMessages([...nextAssistantBase, { role: 'assistant', content: tutorText }])
+
+      setTutorState('tutor speaking')
+      await speakTutorText(tutorText)
+      setTutorState('idle')
+    } finally {
+      tutorTurnInFlightRef.current = false
+    }
+  }, [activeStepId, designDoc, manifest, sessionId, speakTutorText, stopTutorAudio, workspaceId])
+
+  const enqueueAgentCmd = useCallback((cmd: AgentCmd) => {
+    setAgentCommands(prev => [...prev, cmd])
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
-    void (async () => {
+
+    async function run() {
       try {
-        const res = await fetch(
-          `/api/workspaces/${encodeURIComponent(workspaceId)}?sessionId=${encodeURIComponent(sessionId)}`,
-        )
-        if (res.ok) {
-          const payload = (await res.json()) as GetWorkspaceResponse
+        if (workspaceId === 'dev') {
+          const { designDoc, simCode } = await loadProjectileMotionPreset()
           if (cancelled) return
-          const w = payload.workspace
-          setDesignDoc(w.designDoc)
-          setManifest(null)
-          setSimCode(w.simCode)
-          setRenderer(w.renderer)
-          setActiveStepId(
-            payload.branch?.currentSocraticStepId
-              ?? w.designDoc.socratic_plan[0]?.id
-              ?? null,
-          )
-          if (payload.branch?.conversationHistory?.length) {
-            setMessages(payload.branch.conversationHistory)
-          }
+          setDesignDoc(designDoc)
+          setActiveStepId(designDoc.socratic_plan[0]?.id || null)
           setPendingEvents([])
           setAgentCommands([])
+          setManifest(null)
+          setSimCode(simCode)
+          setRenderer(designDoc.renderer)
+          setTutorState('idle')
+          setSimEventHint(null)
+          setSimPhase('idle')
+          setPaused(false)
           return
         }
-      } catch {
-        /* sessionStorage fallback */
-      }
-      const raw = sessionStorage.getItem(`workspace:${workspaceId}`)
-      const data: GenerateResponse | null = raw ? JSON.parse(raw) as GenerateResponse : null
-      if (!data || cancelled) return
-      queueMicrotask(() => {
+
+        try {
+          const res = await fetch(
+            `/api/workspaces/${encodeURIComponent(workspaceId)}?sessionId=${encodeURIComponent(sessionId)}`,
+          )
+          if (res.ok) {
+            const payload = (await res.json()) as GetWorkspaceResponse
+            if (cancelled) return
+            const w = payload.workspace
+            setDesignDoc(w.designDoc)
+            setActiveStepId(
+              payload.branch?.currentSocraticStepId
+                ?? w.designDoc.socratic_plan[0]?.id
+                ?? null,
+            )
+            setCompletedStepIds(w.completedStepIds ?? [])
+            if (payload.branch?.conversationHistory?.length) {
+              setMessages(payload.branch.conversationHistory)
+            }
+            setPendingEvents([])
+            setAgentCommands([])
+            setManifest(null)
+            setSimCode(w.simCode)
+            setRenderer(w.renderer)
+            setTutorState('idle')
+            setSimEventHint(null)
+            setSimPhase('idle')
+            setPaused(false)
+            return
+          }
+        } catch {
+          /* fall through to sessionStorage */
+        }
+
+        const raw = sessionStorage.getItem(`workspace:${workspaceId}`)
+        const data: GenerateResponse | null = raw ? JSON.parse(raw) as GenerateResponse : null
+        if (!data || cancelled) return
         setDesignDoc(data.designDoc)
         setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
         setPendingEvents([])
@@ -360,23 +301,33 @@ export default function WorkspacePage() {
         setManifest(null)
         setSimCode(data.simCode)
         setRenderer(data.designDoc.renderer)
-      })
-    })()
-
-    return () => {
-      cancelled = true
+        setTutorState('idle')
+        setSimEventHint(null)
+        setSimPhase('idle')
+        setPaused(false)
+      } catch (err) {
+        console.error(err)
+      }
     }
+
+    void run()
+    return () => { cancelled = true }
   }, [workspaceId, sessionId])
 
-  const handleManifest = useCallback((m: Manifest) => {
-    setManifest(m)
-  }, [])
+  useEffect(() => {
+    return () => {
+      stopTutorAudio()
+    }
+  }, [stopTutorAudio])
+
+  const handleManifest = useCallback((m: Manifest) => setManifest(m), [])
 
   const sandboxLoading = simCode != null && manifest == null
 
   const handleIframeMessage = useCallback((msg: IframeMessage) => {
     console.log('[iframe]', msg)
     if (msg.type === 'PARAM_CHANGED') {
+      setSimEventHint(`↳ param_changed: ${msg.param} ${msg.from}→${msg.to}`)
       setPendingEvents(prev => [...prev, {
         event: 'param_changed',
         param: msg.param,
@@ -387,86 +338,132 @@ export default function WorkspacePage() {
       }])
     }
     if (msg.type === 'SIM_EVENT') {
+      setSimEventHint(`↳ ${msg.event}`)
       setPendingEvents(prev => [...prev, {
         event: msg.event,
         payload: msg.payload,
         timestamp: msg.timestamp,
       }])
     }
+    if (msg.type === 'SIM_PHASE') {
+      setSimPhase(msg.phase)
+      if (msg.phase !== 'active') setPaused(false)
+    }
+    if (msg.type === 'SIM_PAUSED') setPaused(true)
+    if (msg.type === 'SIM_RESUMED') setPaused(false)
   }, [])
 
   const handleStepEvent = useCallback((event: SimEvent) => {
+    // Treat explicit student submissions (sketch/hypothesis/focus) as a tutor turn trigger.
+    if (event.event === 'prediction_sketch_submitted'
+      || event.event === 'hypothesis_submitted'
+      || event.event === 'focus_selected') {
+      if (activeStepId) {
+        setCompletedStepIds(prev => prev.includes(activeStepId) ? prev : [...prev, activeStepId])
+      }
+      advanceStep()
+      const events = [event]
+      setPendingEvents([])
+      void runTutorTurn({ nextMessages: messages, events })
+      return
+    }
+
     setPendingEvents(prev => [...prev, event])
-  }, [])
+  }, [activeStepId, advanceStep, messages, runTutorTurn])
 
   const handleSend = async (text: string) => {
-    if (!manifest || !designDoc) return
     const next: TutorMessage[] = [...messages, { role: 'user', content: text }]
     setMessages(next)
     const events = pendingEvents
     setPendingEvents([])
-    setIsSpeaking(true)
-
-    const stageBody = {
-      messages: next,
-      pendingEvents: events,
-      manifest,
-      designDoc,
-      sessionId,
-      workspaceId: workspaceId === 'dev' ? 'dev' : workspaceId,
-      activeSocraticStepId: activeStepId || undefined,
-    }
-
-    const stageRes = await fetch('/api/tutor/stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(stageBody),
-    })
-    const stageData = await stageRes.json() as { toolCalls: Array<{ toolName: string; input: Record<string, unknown> }> }
-    const appliedToolCalls: AppliedToolCall[] = stageData.toolCalls.map(toolCall => ({
-      ...toolCall,
-      result: null,
-    }))
-    const commands = stageData.toolCalls
-      .map(toolCallToAgentCmd)
-      .filter((cmd): cmd is AgentCmd => Boolean(cmd))
-    setAgentCommands(prev => [...prev, ...commands])
-
-    const speakRes = await fetch('/api/tutor/speak', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...stageBody, appliedToolCalls }),
-    })
-    const reader = speakRes.body!.getReader()
-    const decoder = new TextDecoder()
-    let fullText = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      fullText += decoder.decode(value, { stream: true })
-      setMessages([...next, { role: 'assistant', content: fullText }])
-    }
-    setIsSpeaking(false)
+    await runTutorTurn({ nextMessages: next, events })
   }
+
+  const handleMic = useCallback(() => {
+    if (tutorTurnInFlightRef.current) return
+    if (typeof window === 'undefined') return
+    if (tutorState !== 'idle') return
+
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition
+      || (window as any).webkitSpeechRecognition
+
+    if (!SpeechRecognitionCtor) {
+      console.warn('[stt] SpeechRecognition not supported in this browser')
+      return
+    }
+
+    try {
+      if (speechRecRef.current) {
+        try { speechRecRef.current.abort?.() } catch {}
+        try { speechRecRef.current.stop?.() } catch {}
+      }
+
+      const rec = new SpeechRecognitionCtor()
+      speechRecRef.current = rec
+      rec.continuous = false
+      rec.interimResults = false
+      rec.lang = 'en-US'
+
+      rec.onstart = () => {
+        stopTutorAudio()
+        setTutorState('listening')
+      }
+
+      rec.onerror = (e: any) => {
+        console.warn('[stt] error', e)
+        setTutorState('idle')
+      }
+
+      rec.onend = () => {
+        // If we didn't transition into processing, return to idle.
+        setTutorState(prev => (prev === 'listening' ? 'idle' : prev))
+      }
+
+      rec.onresult = (event: any) => {
+        const transcript = String(event?.results?.[0]?.[0]?.transcript ?? '').trim()
+        if (!transcript) {
+          setTutorState('idle')
+          return
+        }
+        setTutorState('idle')
+        void handleSend(transcript)
+      }
+
+      rec.start()
+    } catch (err) {
+      console.warn('[stt] failed to start', err)
+      setTutorState('idle')
+    }
+  }, [handleSend, stopTutorAudio, tutorState])
 
   const activeStep = designDoc?.socratic_plan.find(step => step.id === activeStepId) || null
 
   return (
-    <div className="relative flex flex-col h-screen bg-zinc-950 text-zinc-100">
-      {sandboxLoading && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/95 text-zinc-100 gap-3">
-          <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
-          <p className="text-sm text-zinc-300">Sandbox load — starting simulation runtime</p>
-          <p className="text-xs text-zinc-600 max-w-sm text-center">Waiting for manifest from iframe (sim module executed).</p>
+    <div className="relative flex h-screen flex-col overflow-hidden text-[color:var(--ink)]">
+      {sandboxLoading ? (
+        <div className="pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-white/90 backdrop-blur-sm">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--accent)]" />
+          <p className="text-sm text-[color:var(--ink2)]">Starting simulation runtime…</p>
+          <p className="max-w-sm text-center text-xs text-[color:var(--ink3)]">Waiting for manifest from iframe.</p>
         </div>
-      )}
-      <TopBar concept={designDoc?.concept ?? ''} />
-      <div className="flex-1 relative min-h-0">
-        <SocraticPlanPanel
-          designDoc={designDoc}
-          activeStepId={activeStepId}
-          onSelectStep={setActiveStepId}
-        />
+      ) : null}
+
+      {/* Sim canvas (tokens.md): full viewport behind top bar + sim stack + tutor strip */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0 praxio-workspace-sim-canvas"
+      />
+
+      <WorkspaceTopBar
+        conceptTitle={designDoc?.concept ?? ''}
+        socraticSteps={(designDoc?.socratic_plan ?? []).map(step => ({ id: step.id }))}
+        activeStepId={activeStepId}
+        completedStepIds={completedStepIds}
+        onSelectStep={setActiveStepId}
+      />
+
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
         <SimContainer
           simCode={simCode}
           renderer={renderer}
@@ -476,11 +473,44 @@ export default function WorkspacePage() {
           onMessage={handleIframeMessage}
           onStepEvent={handleStepEvent}
         />
+
+        {activeStep?.question ? (
+          <div className="pointer-events-none absolute left-4 right-4 top-4 z-20 flex">
+            {/* Spacer for ParamPanel (top-left) so the question sits to its right */}
+            <div className="w-[260px] shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="mx-auto max-w-[var(--measure-lg)] text-center">
+                <div
+                  className="inline-block rounded-[var(--r)] border bg-white/90 px-4 py-2 text-[14px] leading-[1.45] tracking-tight text-[color:var(--ink)] shadow-[var(--shadow-md)] backdrop-blur"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  {activeStep.question}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {manifest ? (
+          <SimControlsOverlay
+            manifest={manifest}
+            phase={simPhase}
+            paused={paused}
+            onLaunch={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'launch' })}
+            onPause={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'pause' })}
+            onPlay={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'play' })}
+            onReset={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'reset' })}
+          />
+        ) : null}
       </div>
-      <TutorPanel
+
+      <WorkspaceTutorStrip
         messages={messages}
         onSend={handleSend}
-        isSpeaking={isSpeaking}
+        onMic={handleMic}
+        tutorState={tutorState}
+        simEventHint={simEventHint}
+        showSimHint
       />
     </div>
   )

@@ -50,6 +50,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         lastActiveAt: (doc.lastActiveAt ?? doc.createdAt).toISOString(),
         completedAt: doc.completedAt?.toISOString(),
         simCode: doc.simCode,
+        completedStepIds: doc.completedStepIds ?? [],
       },
       completion: toCompletionState(doc),
     }
