@@ -1,0 +1,331 @@
+{
+  "concept": "Projectile Motion",
+  "domain": "physics",
+  "primitive": "physics.projectile",
+  "renderer": "p5",
+  "episodic": true,
+  "params": [
+    {
+      "name": "launch_angle",
+      "range": [
+        0,
+        90
+      ],
+      "default": 45,
+      "label": "Launch Angle",
+      "unit": "degrees"
+    },
+    {
+      "name": "initial_velocity",
+      "range": [
+        5,
+        50
+      ],
+      "default": 20,
+      "label": "Initial Velocity",
+      "unit": "m/s"
+    },
+    {
+      "name": "gravity",
+      "range": [
+        1,
+        20
+      ],
+      "default": 9.81,
+      "label": "Gravity",
+      "unit": "m/s^2"
+    },
+    {
+      "name": "launch_height",
+      "range": [
+        0,
+        100
+      ],
+      "default": 0,
+      "label": "Launch Height",
+      "unit": "m"
+    }
+  ],
+  "governing_equations": [
+    "x = v0 * cos(theta) * t",
+    "y = y0 + v0 * sin(theta) * t - 0.5 * g * t^2",
+    "time_of_flight = (v0 * sin(theta) + sqrt((v0 * sin(theta))^2 + 2 * g * y0)) / g",
+    "range = v0 * cos(theta) * time_of_flight"
+  ],
+  "emit_events": [
+    "projectile_launched",
+    "projectile_landed",
+    "peak_reached"
+  ],
+  "register_regions": [
+    "launch_point",
+    "landing_point",
+    "peak_height_marker",
+    "trajectory_path"
+  ],
+  "initial_staging": {
+    "locked": [],
+    "highlighted": [
+      "launch_angle",
+      "initial_velocity"
+    ]
+  },
+  "socratic_plan": [
+    {
+      "id": "step_1_explore_basics",
+      "learning_goal": "Understand how launch angle and initial velocity affect projectile trajectory.",
+      "question": "Observe how changing the launch angle and initial velocity affects the projectile's path and where it lands. What do you notice about their individual influences?",
+      "interaction": {
+        "kind": "manipulate_param",
+        "params": [
+          "launch_angle",
+          "initial_velocity"
+        ]
+      },
+      "staging": {
+        "lock": [
+          "gravity",
+          "launch_height"
+        ],
+        "highlight": [
+          "launch_angle",
+          "initial_velocity"
+        ]
+      },
+      "exit_condition": "student has manipulated both parameters and verbalized observations"
+    },
+    {
+      "id": "step_2_max_range",
+      "learning_goal": "Discover the launch angle that maximizes horizontal range for a given initial velocity and flat ground.",
+      "question": "For a fixed initial velocity and launching from the ground, what launch angle do you predict will achieve the maximum horizontal range?",
+      "interaction": {
+        "kind": "numeric_hypothesis",
+        "metric": "range_m",
+        "unit": "m"
+      },
+      "staging": {
+        "lock": [
+          "initial_velocity",
+          "gravity",
+          "launch_height"
+        ],
+        "highlight": [
+          "launch_angle"
+        ],
+        "set_params": {}
+      },
+      "exit_condition": "student makes a numeric hypothesis for range and then manipulates angle to test"
+    },
+    {
+      "id": "step_3_gravity_impact",
+      "learning_goal": "Analyze the effect of gravity on projectile motion.",
+      "question": "Now, consider the effect of gravity. How do you expect a higher or lower gravitational acceleration to change the projectile's range and time of flight?",
+      "interaction": {
+        "kind": "manipulate_param",
+        "params": [
+          "gravity"
+        ]
+      },
+      "staging": {
+        "unlock": [
+          "gravity",
+          "launch_angle",
+          "initial_velocity",
+          "launch_height",
+          "gravity"
+        ]
+      },
+      "exit_condition": "student has manipulated gravity and observed changes"
+    },
+    {
+      "id": "step_4_launch_height_impact",
+      "learning_goal": "Understand how initial launch height affects range and time of flight.",
+      "question": "What if the projectile is launched from a height above the ground? How would increasing the 'Launch Height' parameter affect the total time the projectile is in the air and its final horizontal range?",
+      "interaction": {
+        "kind": "manipulate_param",
+        "params": [
+          "launch_height"
+        ]
+      },
+      "staging": {
+        "unlock": [
+          "launch_height"
+        ]
+      },
+      "exit_condition": "student has manipulated launch_height and observed changes"
+    }
+  ],
+  "verification": {
+    "summary": "The simulation accurately models projectile motion, demonstrating the expected relationships between launch parameters (angle, velocity, height, gravity) and key kinematic metrics (range, time of flight).",
+    "probes": [
+      {
+        "id": "probe_45_deg_20_ms",
+        "description": "Standard launch conditions for a baseline.",
+        "params": {
+          "launch_angle": 45,
+          "initial_velocity": 20,
+          "gravity": 9.81,
+          "launch_height": 0
+        },
+        "expected_metrics": [
+          "range_m",
+          "time_of_flight_s"
+        ]
+      },
+      {
+        "id": "probe_20_deg_20_ms",
+        "description": "Lower launch angle at baseline velocity for comparison.",
+        "params": {
+          "launch_angle": 20,
+          "initial_velocity": 20,
+          "gravity": 9.81,
+          "launch_height": 0
+        },
+        "expected_metrics": [
+          "range_m",
+          "time_of_flight_s"
+        ]
+      },
+      {
+        "id": "probe_30_deg_20_ms",
+        "description": "Moderate launch angle at baseline velocity for range symmetry.",
+        "params": {
+          "launch_angle": 30,
+          "initial_velocity": 20,
+          "gravity": 9.81,
+          "launch_height": 0
+        },
+        "expected_metrics": [
+          "range_m",
+          "time_of_flight_s"
+        ]
+      },
+      {
+        "id": "probe_60_deg_20_ms",
+        "description": "High launch angle at baseline velocity for range symmetry.",
+        "params": {
+          "launch_angle": 60,
+          "initial_velocity": 20,
+          "gravity": 9.81,
+          "launch_height": 0
+        },
+        "expected_metrics": [
+          "range_m",
+          "time_of_flight_s"
+        ]
+      },
+      {
+        "id": "probe_45_deg_30_ms",
+        "description": "Higher initial velocity to observe impact on range and time of flight.",
+        "params": {
+          "launch_angle": 45,
+          "initial_velocity": 30,
+          "gravity": 9.81,
+          "launch_height": 0
+        },
+        "expected_metrics": [
+          "range_m",
+          "time_of_flight_s"
+        ]
+      },
+      {
+        "id": "probe_45_deg_20_ms_low_g",
+        "description": "Lower gravity to observe increased range and time of flight.",
+        "params": {
+          "launch_angle": 45,
+          "initial_velocity": 20,
+          "gravity": 5,
+          "launch_height": 0
+        },
+        "expected_metrics": [
+          "range_m",
+          "time_of_flight_s"
+        ]
+      },
+      {
+        "id": "probe_30_deg_20_ms_h10",
+        "description": "Launch from a height to observe increased range and time of flight.",
+        "params": {
+          "launch_angle": 30,
+          "initial_velocity": 20,
+          "gravity": 9.81,
+          "launch_height": 10
+        },
+        "expected_metrics": [
+          "range_m",
+          "time_of_flight_s"
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "kind": "near_maximum",
+        "id": "inv_max_range_at_45_deg",
+        "description": "Horizontal range should be near maximum at a 45-degree launch angle when launching from flat ground.",
+        "target_probe": "probe_45_deg_20_ms",
+        "comparison_probes": [
+          "probe_20_deg_20_ms",
+          "probe_30_deg_20_ms",
+          "probe_60_deg_20_ms"
+        ],
+        "metric": "range_m",
+        "tolerance_percent": 8
+      },
+      {
+        "kind": "approximately_equal",
+        "id": "inv_range_symmetry_30_60_deg",
+        "description": "Horizontal range for 30 degrees should be approximately equal to 60 degrees for flat ground launches.",
+        "left_probe": "probe_30_deg_20_ms",
+        "right_probe": "probe_60_deg_20_ms",
+        "metric": "range_m",
+        "tolerance_percent": 8
+      },
+      {
+        "kind": "monotonic",
+        "id": "inv_tof_increases_with_angle",
+        "description": "Time of flight should monotonically increase with launch angle (up to 90 degrees) for constant initial velocity and height.",
+        "probe_order": [
+          "probe_20_deg_20_ms",
+          "probe_30_deg_20_ms",
+          "probe_45_deg_20_ms",
+          "probe_60_deg_20_ms"
+        ],
+        "metric": "time_of_flight_s",
+        "direction": "increasing"
+      },
+      {
+        "kind": "monotonic",
+        "id": "inv_range_increases_with_v0",
+        "description": "Horizontal range should monotonically increase with initial velocity for a fixed launch angle and gravity.",
+        "probe_order": [
+          "probe_45_deg_20_ms",
+          "probe_45_deg_30_ms"
+        ],
+        "metric": "range_m",
+        "direction": "increasing"
+      },
+      {
+        "kind": "monotonic",
+        "id": "inv_tof_decreases_with_gravity",
+        "description": "Time of flight should monotonically decrease as gravitational acceleration increases.",
+        "probe_order": [
+          "probe_45_deg_20_ms_low_g",
+          "probe_45_deg_20_ms"
+        ],
+        "metric": "time_of_flight_s",
+        "direction": "decreasing"
+      },
+      {
+        "kind": "monotonic",
+        "id": "inv_range_increases_with_height",
+        "description": "Horizontal range should monotonically increase with launch height for a fixed angle and velocity.",
+        "probe_order": [
+          "probe_30_deg_20_ms",
+          "probe_30_deg_20_ms_h10"
+        ],
+        "metric": "range_m",
+        "direction": "increasing"
+      }
+    ]
+  }
+}

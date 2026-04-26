@@ -10,6 +10,7 @@ import SimControlsOverlay from '@/components/SimControlsOverlay'
 import type {
   AgentCmd,
   AppliedToolCall,
+  GetWorkspaceResponse,
   IframeMessage,
   Manifest,
   SimEvent,
@@ -94,6 +95,7 @@ export default function WorkspacePage() {
   const [sessionId] = useState(() => typeof window === 'undefined' ? 'demo' : getSessionId())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const tutorTurnInFlightRef = useRef(false)
+  const speechRecRef = useRef<any>(null)
 
   const advanceStep = useCallback(() => {
     if (!designDoc?.socratic_plan?.length) return
@@ -168,6 +170,7 @@ export default function WorkspacePage() {
         manifest,
         designDoc,
         sessionId,
+        workspaceId: workspaceId === 'dev' ? 'dev' : workspaceId,
         activeSocraticStepId: activeStepId || undefined,
       }
 
@@ -203,8 +206,23 @@ export default function WorkspacePage() {
         return
       }
 
-      const tutorText = await speakRes.text()
-      setMessages([...args.nextMessages, { role: 'assistant', content: tutorText }])
+      const nextAssistantBase: TutorMessage[] = [...args.nextMessages]
+      let tutorText = ''
+      if (speakRes.body) {
+        const reader = speakRes.body.getReader()
+        const decoder = new TextDecoder()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          tutorText += decoder.decode(value, { stream: true })
+          setMessages([...nextAssistantBase, { role: 'assistant', content: tutorText }])
+        }
+        tutorText += decoder.decode()
+      } else {
+        tutorText = await speakRes.text()
+      }
+
+      setMessages([...nextAssistantBase, { role: 'assistant', content: tutorText }])
 
       setTutorState('tutor speaking')
       await speakTutorText(tutorText)
@@ -212,7 +230,7 @@ export default function WorkspacePage() {
     } finally {
       tutorTurnInFlightRef.current = false
     }
-  }, [activeStepId, designDoc, manifest, sessionId, speakTutorText, stopTutorAudio])
+  }, [activeStepId, designDoc, manifest, sessionId, speakTutorText, stopTutorAudio, workspaceId])
 
   const enqueueAgentCmd = useCallback((cmd: AgentCmd) => {
     setAgentCommands(prev => [...prev, cmd])
@@ -230,6 +248,7 @@ export default function WorkspacePage() {
           setActiveStepId(designDoc.socratic_plan[0]?.id || null)
           setPendingEvents([])
           setAgentCommands([])
+          setManifest(null)
           setSimCode(simCode)
           setRenderer(designDoc.renderer)
           setTutorState('idle')
@@ -239,13 +258,47 @@ export default function WorkspacePage() {
           return
         }
 
+        try {
+          const res = await fetch(
+            `/api/workspaces/${encodeURIComponent(workspaceId)}?sessionId=${encodeURIComponent(sessionId)}`,
+          )
+          if (res.ok) {
+            const payload = (await res.json()) as GetWorkspaceResponse
+            if (cancelled) return
+            const w = payload.workspace
+            setDesignDoc(w.designDoc)
+            setActiveStepId(
+              payload.branch?.currentSocraticStepId
+                ?? w.designDoc.socratic_plan[0]?.id
+                ?? null,
+            )
+            setCompletedStepIds(w.completedStepIds ?? [])
+            if (payload.branch?.conversationHistory?.length) {
+              setMessages(payload.branch.conversationHistory)
+            }
+            setPendingEvents([])
+            setAgentCommands([])
+            setManifest(null)
+            setSimCode(w.simCode)
+            setRenderer(w.renderer)
+            setTutorState('idle')
+            setSimEventHint(null)
+            setSimPhase('idle')
+            setPaused(false)
+            return
+          }
+        } catch {
+          /* fall through to sessionStorage */
+        }
+
         const raw = sessionStorage.getItem(`workspace:${workspaceId}`)
-        const data = raw ? (JSON.parse(raw) as GenerateResponse) : null
+        const data: GenerateResponse | null = raw ? JSON.parse(raw) as GenerateResponse : null
         if (!data || cancelled) return
         setDesignDoc(data.designDoc)
         setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
         setPendingEvents([])
         setAgentCommands([])
+        setManifest(null)
         setSimCode(data.simCode)
         setRenderer(data.designDoc.renderer)
         setTutorState('idle')
@@ -259,7 +312,7 @@ export default function WorkspacePage() {
 
     void run()
     return () => { cancelled = true }
-  }, [workspaceId])
+  }, [workspaceId, sessionId])
 
   useEffect(() => {
     return () => {
@@ -268,6 +321,8 @@ export default function WorkspacePage() {
   }, [stopTutorAudio])
 
   const handleManifest = useCallback((m: Manifest) => setManifest(m), [])
+
+  const sandboxLoading = simCode != null && manifest == null
 
   const handleIframeMessage = useCallback((msg: IframeMessage) => {
     console.log('[iframe]', msg)
@@ -324,10 +379,76 @@ export default function WorkspacePage() {
     await runTutorTurn({ nextMessages: next, events })
   }
 
+  const handleMic = useCallback(() => {
+    if (tutorTurnInFlightRef.current) return
+    if (typeof window === 'undefined') return
+    if (tutorState !== 'idle') return
+
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition
+      || (window as any).webkitSpeechRecognition
+
+    if (!SpeechRecognitionCtor) {
+      console.warn('[stt] SpeechRecognition not supported in this browser')
+      return
+    }
+
+    try {
+      if (speechRecRef.current) {
+        try { speechRecRef.current.abort?.() } catch {}
+        try { speechRecRef.current.stop?.() } catch {}
+      }
+
+      const rec = new SpeechRecognitionCtor()
+      speechRecRef.current = rec
+      rec.continuous = false
+      rec.interimResults = false
+      rec.lang = 'en-US'
+
+      rec.onstart = () => {
+        stopTutorAudio()
+        setTutorState('listening')
+      }
+
+      rec.onerror = (e: any) => {
+        console.warn('[stt] error', e)
+        setTutorState('idle')
+      }
+
+      rec.onend = () => {
+        // If we didn't transition into processing, return to idle.
+        setTutorState(prev => (prev === 'listening' ? 'idle' : prev))
+      }
+
+      rec.onresult = (event: any) => {
+        const transcript = String(event?.results?.[0]?.[0]?.transcript ?? '').trim()
+        if (!transcript) {
+          setTutorState('idle')
+          return
+        }
+        setTutorState('idle')
+        void handleSend(transcript)
+      }
+
+      rec.start()
+    } catch (err) {
+      console.warn('[stt] failed to start', err)
+      setTutorState('idle')
+    }
+  }, [handleSend, stopTutorAudio, tutorState])
+
   const activeStep = designDoc?.socratic_plan.find(step => step.id === activeStepId) || null
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden text-[color:var(--ink)]">
+      {sandboxLoading ? (
+        <div className="pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-white/90 backdrop-blur-sm">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--accent)]" />
+          <p className="text-sm text-[color:var(--ink2)]">Starting simulation runtime…</p>
+          <p className="max-w-sm text-center text-xs text-[color:var(--ink3)]">Waiting for manifest from iframe.</p>
+        </div>
+      ) : null}
+
       {/* Sim canvas (tokens.md): full viewport behind top bar + sim stack + tutor strip */}
       <div
         aria-hidden
@@ -386,6 +507,7 @@ export default function WorkspacePage() {
       <WorkspaceTutorStrip
         messages={messages}
         onSend={handleSend}
+        onMic={handleMic}
         tutorState={tutorState}
         simEventHint={simEventHint}
         showSimHint

@@ -13,8 +13,9 @@ As of 2026-04-24, after adding generation prompts, tutor prompts, and the first 
 
 Implemented in `src/lib/prompts.ts`:
 
-- `PASS1_SYSTEM_PROMPT` — concept → design doc, including verification probes/invariants.
-- `buildPass2Prompt()` — design doc → sandbox-safe sim code, including renderer cheatsheets.
+- `CURRICULUM_SYSTEM_PROMPT` — concept → design doc core.
+- `VERIFICATION_SPEC_SYSTEM_PROMPT` — design doc core → verification probes/invariants.
+- `buildSimBuilderPrompt()` — full design doc → sandbox-safe sim code, including renderer cheatsheets.
 - `buildCall1SystemPrompt()` — staging/tool decision prompt.
 - `buildCall2SystemPrompt()` — Socratic speech prompt.
 
@@ -76,7 +77,7 @@ Remaining risks:
 **Status:** Implemented  
 **Blocker:** None
 
-[`src/lib/designDocConsistency.ts`](../src/lib/designDocConsistency.ts) implements cross-reference checks (params, regions, events, staging, Socratic plan, probes, invariants). [`src/lib/generationPipeline.ts`](../src/lib/generationPipeline.ts) runs it immediately after Pass 1; failures return HTTP 422 with `phase: 'designDocConsistency'` and `consistencyErrors`.
+[`src/lib/designDocConsistency.ts`](../src/lib/designDocConsistency.ts) implements cross-reference checks (params, regions, events, staging, Socratic plan, probes, invariants). [`src/lib/generationPipeline.ts`](../src/lib/generationPipeline.ts) runs it immediately after curriculum + verification-spec generation; failures return HTTP 422 with `phase: 'designDocConsistency'` and `consistencyErrors`.
 
 **Work:** Extend checks only if new `DesignDoc` fields are added or eval finds holes.
 
@@ -105,7 +106,7 @@ Missing:
 **Blocker:** High — need to know what ships at 36h
 
 Scope creep surface area:
-- Two-pass generation (Pass 1, Pass 2, validation, fallback) — ~6h
+- Generation pipeline (curriculum agent, verification-spec agent, sim-builder agent, validation, fallback) — ~6h
 - Socratic tutor (Call 1, Call 2, system prompts, tool application) — ~8h
 - Simulation runtime SDK (iframe, postMessage, renderers, checkpoints) — ~8h
 - Voice layer (STT, TTS, microphone toggle, streaming) — ~4h
@@ -190,7 +191,7 @@ Missing:
 
 **Work:** Create a test harness:
 1. List of 5-10 test concepts with expected outputs (design doc, sim code)
-2. Offline validation script that runs Pass 1 and Pass 2, checks Zod schema + code validation
+2. Offline validation script that runs curriculum + verification-spec + sim-builder stages, checks Zod schema + code validation
 3. End-to-end smoke test that spins up a local instance, runs a concept, checks tutor call succeeds
 4. Behavioral verification harness that runs generated sims against invariant probes before iframe load
 5. Manual checklist: can you demo projectile, derivatives, diffusion end-to-end in <30s each?

@@ -75,6 +75,17 @@ These overlay interactions are appended to the tutor's `pendingEvents` stream as
 
 ## Core API
 
+### Built-in primitives (`runtime.physics`, `runtime.math`)
+
+The iframe loads [`public/runtime-primitives/physics.js`](../public/runtime-primitives/physics.js) and [`public/runtime-primitives/math.js`](../public/runtime-primitives/math.js) after [mathjs](https://mathjs.org/), then [`public/simRuntime.js`](../public/simRuntime.js) exposes them on the same `runtime` object as the rest of the SDK.
+
+- **`runtime.physics`** — closed-form helpers (no hand-rolled Euler integration for covered cases). Includes:
+  - `projectile(speed_mps, angle_deg, g_mps2)` — `positionAt(t)` with `y_m = 0` at launch, `y_m > 0` upward; `range`, `flightTime`, `peak`, `didLand(t)`.
+  - `shm`, `exponentialDecay`, `elasticCollision1D`, `logisticGrowth` — see source for signatures.
+- **`runtime.math`** — thin facade over mathjs: `derivative`, `integral`, `evaluate`, `taylorCoefficients`, `complex`.
+
+The curriculum agent may set `primitive` on the design doc (e.g. `physics.projectile`); the sim-builder agent is instructed to call these instead of re-deriving unstable numerics. The headless behavioral verifier injects the same APIs so generated code verifies under the same surface as the iframe.
+
 ### `runtime.registerParam(name, options)`
 
 Declares a manipulable variable. This is the most important primitive. Every call to `registerParam` automatically:
@@ -394,11 +405,11 @@ RULES:
 
 ---
 
-## Two-Pass Generation Pipeline
+## Multi-Agent Generation Pipeline
 
-LLM-generated sims are produced in two passes. This is not optional — single-shot concept → code is where reliability breaks.
+LLM-generated sims are produced in staged agents. This is not optional — single-shot concept → code is where reliability breaks.
 
-### Pass 1 — Concept → Design Document
+### Curriculum Agent — Concept → Design Document Core
 
 **Model**: fast, cheap (Haiku or Sonnet with low tokens)
 **Input**: raw concept string from student
@@ -453,24 +464,30 @@ LLM-generated sims are produced in two passes. This is not optional — single-s
 }
 ```
 
-### Pass 2 — Design Document → Sim Code
+### Verification-Spec Agent — Design Doc Core → Verification Block
+
+**Model**: structured-output model
+**Input**: design document core
+**Output**: `verification` block (`summary`, `probes`, `invariants`)
+
+### Sim-Builder Agent — Full Design Document → Sim Code
 
 **Model**: Sonnet (full capability)
 **Input**: design document + full SDK spec
 **Output**: valid sim module
 
-The Pass 2 prompt includes:
+The sim-builder prompt includes:
 - The complete `simRuntime` API surface (copy of this document's Core API section)
-- The Pass 1 design document
+- The curriculum + verification-spec merged design document
 - Hard constraints (see Generation Rules below)
 
-**Pass 2 failure handling**: if the generated code fails validation (missing `registerParam` calls, syntax error, runtime exception on load), retry Pass 2 only. The design document from Pass 1 is preserved and reused. Retry with added context: `"Previous attempt failed with: {error}. Do not repeat this mistake."`
+**Sim-builder failure handling**: if the generated code fails validation (missing `registerParam` calls, syntax error, runtime exception on load), retry sim-builder only. The design document from curriculum + verification-spec is preserved and reused. Retry with added context: `"Previous attempt failed with: {error}. Do not repeat this mistake."`
 
 ---
 
-## Generation Rules (Injected into Pass 2 Prompt)
+## Generation Rules (Injected into Sim-Builder Prompt)
 
-These are injected verbatim into the Pass 2 system prompt to constrain output:
+These are injected verbatim into the sim-builder system prompt to constrain output:
 
 ```
 RULES — you must follow all of these:
@@ -501,7 +518,7 @@ RULES — you must follow all of these:
 
 ## Renderer Variants
 
-The runtime ships three renderer variants. Pass 1 selects the renderer via the `"renderer"` field. The sim code is identical across all three — only the context type passed to `onRender` differs.
+The runtime ships three renderer variants. The curriculum agent selects the renderer via the `"renderer"` field. The sim code is identical across all three — only the context type passed to `onRender` differs.
 
 | Renderer | Context type | Best for |
 |---|---|---|
@@ -528,7 +545,7 @@ function validateSimModule(code) {
 }
 ```
 
-Failed validation triggers a Pass 2 retry with the error message appended to the prompt. Three failures on the same concept escalates to a template fallback.
+Failed validation triggers a sim-builder retry with the error message appended to the prompt. Three failures on the same concept escalates to a template fallback.
 
 Static validation only proves that code is shaped correctly enough to run. It does not prove that the simulation is conceptually correct. After static validation passes, Praxio runs behavioral verification.
 
@@ -550,7 +567,7 @@ run designDoc.verification.probes
 check designDoc.verification.invariants
         ↓
 pass → load in iframe
-fail → retry Pass 2 with invariant failures
+fail → retry sim-builder with invariant failures
 ```
 
 ### Probe Execution
@@ -596,7 +613,7 @@ If any invariant fails, the verifier returns a structured failure report such as
 }
 ```
 
-That report is appended to the Pass 2 retry prompt. The model is asked to repair the simulation code, not to rewrite the design doc. If behavioral verification still fails after the retry budget, generation falls back to a pre-verified template for the nearest supported concept/domain.
+That report is appended to the sim-builder retry prompt. The model is asked to repair the simulation code, not to rewrite the design doc. If behavioral verification still fails after the retry budget, generation falls back to a pre-verified template for the nearest supported concept/domain.
 
 ### Verification Scope
 
@@ -687,9 +704,9 @@ The generated sim code is never written to disk. It is a plain string in memory 
 ```
 User types "projectile motion"
         ↓
-Frontend → Claude API (Pass 1) → design doc JSON in memory
+Frontend → generation API (curriculum-agent) → design doc core JSON in memory
         ↓
-Frontend → Claude API (Pass 2) → sim code as plain string in memory
+Frontend → generation API (verification-spec-agent + sim-builder-agent) → sim code as plain string in memory
         ↓
 validateSimModule(codeString) — static checks before execution
         ↓
@@ -803,31 +820,45 @@ Complete isolation per sim, but ~500ms reload penalty every time. Acceptable for
 
 ```javascript
 async function generateSim(concept) {
-  // Pass 1 — concept → design doc
-  const pass1Response = await fetch('https://api.anthropic.com/v1/messages', {
+  // Curriculum agent — concept → design doc core
+  const curriculumResponse = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system: PASS1_SYSTEM_PROMPT,
+      system: CURRICULUM_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: concept }]
     })
   })
-  const designDoc = JSON.parse(pass1Response.content[0].text)
+  const designDocCore = JSON.parse(curriculumResponse.content[0].text)
 
-  // Pass 2 — design doc → sim code
-  const pass2Response = await fetch('https://api.anthropic.com/v1/messages', {
+  // Verification-spec agent — design doc core → probes/invariants
+  const verificationResponse = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      system: VERIFICATION_SPEC_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: JSON.stringify(designDocCore) }]
+    })
+  })
+  const verification = JSON.parse(verificationResponse.content[0].text)
+  const designDoc = { ...designDocCore, verification }
+
+  // Sim-builder agent — full design doc → sim code
+  const simBuilderResponse = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
-      system: PASS2_SYSTEM_PROMPT + '\n\nDESIGN DOCUMENT:\n' + JSON.stringify(designDoc, null, 2),
+      system: SIM_BUILDER_SYSTEM_PROMPT + '\n\nDESIGN DOCUMENT:\n' + JSON.stringify(designDoc, null, 2),
       messages: [{ role: 'user', content: 'Generate the simulation module.' }]
     })
   })
-  const simCode = pass2Response.content[0].text
+  const simCode = simBuilderResponse.content[0].text
 
   return { designDoc, simCode }
 }
@@ -843,12 +874,14 @@ A single Express or FastAPI endpoint that accepts `{ concept }` and returns `{ d
 // Express — generation/index.js
 app.post('/generate', async (req, res) => {
   const { concept } = req.body
-  const designDoc = await runPass1(concept)
-  const simCode = await runPass2(designDoc)
+  const designDocCore = await runCurriculumAgent(concept)
+  const verification = await runVerificationSpecAgent(designDocCore)
+  const designDoc = { ...designDocCore, verification }
+  const simCode = await runSimBuilderAgent(designDoc)
   const errors = validateSimModule(simCode)
 
   if (errors.length > 0) {
-    const retry = await runPass2(designDoc, errors)  // retry with error context
+    const retry = await runSimBuilderAgent(designDoc, errors)  // retry with error context
     return res.json({ designDoc, simCode: retry })
   }
 
@@ -864,14 +897,15 @@ app.post('/generate', async (req, res) => {
 1.  User submits "I don't understand projectile motion"
 
 2.  generateSim("projectile motion") called
-    → Pass 1 API call → designDoc JSON (domain, params, equations,
+    → curriculum-agent API call → designDoc core JSON (domain, params, equations,
       socratic_plan, initial_staging, renderer)
-    → Pass 2 API call → codeString (~50–100 lines of plain JS)
+    → verification-spec-agent API call → probes/invariants
+    → sim-builder-agent API call → codeString (~50–100 lines of plain JS)
 
 3.  validateSimModule(codeString)
     → checks: registerParam present, onUpdate/onRender present,
       no document. access, no window. access, no import statements
-    → if invalid: retry Pass 2 with error appended to prompt
+    → if invalid: retry sim-builder-agent with error appended to prompt
     → three consecutive failures → escalate to template fallback
 
 4.  postMessage to iframe:
@@ -928,8 +962,9 @@ src/
     validation.js          Pre-execution code checks
 
   generation/
-    pass1.js               Concept → design document (Claude API call)
-    pass2.js               Design document → sim code (Claude API call)
+    curriculumAgent.js     Concept → design document core (LLM call)
+    verificationSpec.js    Design doc core → probes/invariants (LLM call)
+    simBuilder.js          Full design document → sim code (LLM call)
     retryPolicy.js         Validation failure → retry with error context
     fallback.js            3-strike escalation to template registry
 

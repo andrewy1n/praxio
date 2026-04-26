@@ -1,0 +1,168 @@
+{
+  "concept": "elastic and inelastic collisions",
+  "domain": "physics",
+  "renderer": "matter",
+  "episodic": true,
+  "params": [
+    {
+      "name": "restitution",
+      "range": [0.0, 1.0],
+      "default": 1.0,
+      "label": "Restitution (e)",
+      "unit": "",
+      "pedagogical_note": "e = 1 is perfectly elastic (KE conserved); e = 0 is perfectly inelastic (maximum KE lost); intermediate values give partial energy loss"
+    },
+    {
+      "name": "mass_ratio",
+      "range": [0.25, 4.0],
+      "default": 1.0,
+      "label": "Mass Ratio (m₁/m₂)",
+      "unit": "",
+      "pedagogical_note": "At ratio = 1 and e = 1, the moving ball stops completely — a classic billiard ball result. At ratio < 1, the lighter ball bounces back."
+    }
+  ],
+  "governing_equations": [
+    "p = m_1 v_1 + m_2 v_2 = \\text{const}  \\quad \\text{(momentum always conserved)}",
+    "e = \\frac{v_2' - v_1'}{v_1 - v_2}  \\quad \\text{(coefficient of restitution)}",
+    "v_1' = \\frac{m_1 - e m_2}{m_1 + m_2} v_1  \\quad \\text{(when } v_2 = 0\\text{)}",
+    "v_2' = \\frac{(1 + e) m_1}{m_1 + m_2} v_1  \\quad \\text{(when } v_2 = 0\\text{)}",
+    "\\frac{KE_{\\text{after}}}{KE_{\\text{before}}} = 1 - \\frac{m_1 m_2 (1 - e^2)}{(m_1 + m_2)^2}"
+  ],
+  "emit_events": ["collision", "separation"],
+  "register_regions": ["left_ball", "right_ball", "collision_zone"],
+  "initial_staging": {
+    "locked": ["restitution", "mass_ratio"],
+    "highlighted": ["restitution"]
+  },
+  "socratic_plan": [
+    {
+      "id": "predict_elastic_equal",
+      "question": "Both balls have the same mass and we start with a perfectly elastic collision — e = 1. When the blue ball hits the orange one, where does the blue ball end up? Does it keep moving forward, stop completely, or bounce back?",
+      "learning_goal": "Student externalises their prior model of momentum transfer before observing it",
+      "exit_condition": "Student makes a prediction — any answer accepted",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "lock": ["restitution", "mass_ratio"], "highlight": ["restitution"] }
+    },
+    {
+      "id": "explore_restitution",
+      "question": "Now try changing e. Set it to 0.5, then 0. Launch each time and describe what changes after the collision.",
+      "learning_goal": "Student discovers that reducing e decreases how much energy is transferred — the balls move together rather than one stopping",
+      "exit_condition": "Student notices the balls behave differently at e = 0 vs e = 1",
+      "interaction": { "kind": "manipulate_param", "params": ["restitution"] },
+      "staging": { "unlock": ["restitution"], "lock": ["mass_ratio"], "highlight": ["restitution"] }
+    },
+    {
+      "id": "discover_momentum",
+      "question": "Look at the momentum reading — it shows what fraction is conserved after each collision. What pattern do you notice across all the different e values you just tried?",
+      "learning_goal": "Student identifies that total momentum is conserved regardless of restitution, even though kinetic energy is not",
+      "exit_condition": "Student recognises that momentum is always ~100% conserved regardless of e",
+      "interaction": { "kind": "observe_event", "event": "separation" },
+      "staging": { "highlight": ["restitution"] }
+    },
+    {
+      "id": "predict_mass_ratio",
+      "question": "Set e back to 1. Now change the mass ratio to 0.25 — the blue ball is four times lighter than the orange. What do you think will happen to the blue ball after the collision?",
+      "learning_goal": "Student forms a hypothesis about what happens when a lighter object hits a heavier stationary one",
+      "exit_condition": "Student makes a prediction — particularly whether the blue ball bounces back",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "unlock": ["mass_ratio"], "highlight": ["mass_ratio"], "set_params": { "restitution": 1 } }
+    },
+    {
+      "id": "explain_bounce_back",
+      "question": "The lighter ball bounced back. Using the momentum equation, why must a lighter ball reverse direction when it hits a much heavier stationary object — even in a perfectly elastic collision?",
+      "learning_goal": "Student derives from p = const and the restitution equation that v₁' must be negative when m₁ < m₂ and e = 1",
+      "exit_condition": "Student connects the sign of v₁' to the mass ratio in the collision equations",
+      "interaction": { "kind": "verbal_response" },
+      "staging": {
+        "annotate": [
+          { "region": "left_ball",      "text": "v₁' = (m₁ − m₂) v₁ / (m₁ + m₂) < 0 when m₁ < m₂" },
+          { "region": "collision_zone", "text": "Momentum conserved; KE conserved (e = 1)" }
+        ]
+      }
+    }
+  ],
+  "verification": {
+    "summary": "Momentum is conserved for all restitution values. KE is fully conserved only for e = 1. At e = 0 with equal masses, exactly 50% of KE is lost. A lighter elastic ball bounces back; equal-mass elastic ball stops.",
+    "probes": [
+      {
+        "id": "elastic_equal",
+        "description": "Perfectly elastic collision between equal masses — blue ball should stop, orange takes full speed",
+        "params": { "restitution": 1.0, "mass_ratio": 1.0 },
+        "expected_metrics": ["ke_fraction", "v1_after", "v2_after"]
+      },
+      {
+        "id": "inelastic_equal",
+        "description": "Perfectly inelastic collision between equal masses — should retain exactly 50% KE",
+        "params": { "restitution": 0.0, "mass_ratio": 1.0 },
+        "expected_metrics": ["ke_fraction", "v1_after", "v2_after"]
+      },
+      {
+        "id": "elastic_heavy",
+        "description": "Elastic collision with heavy blue ball (mr = 4) — blue continues forward, orange flies off faster",
+        "params": { "restitution": 1.0, "mass_ratio": 4.0 },
+        "expected_metrics": ["ke_fraction", "v1_after", "v2_after"]
+      },
+      {
+        "id": "elastic_light",
+        "description": "Elastic collision with light blue ball (mr = 0.25) — blue bounces back at −0.6 v₀",
+        "params": { "restitution": 1.0, "mass_ratio": 0.25 },
+        "expected_metrics": ["ke_fraction", "v1_after"]
+      }
+    ],
+    "invariants": [
+      {
+        "kind": "near_expected",
+        "id": "ke_conserved_elastic_equal",
+        "description": "KE fraction should be ≈ 1.0 for perfectly elastic equal-mass collision.",
+        "probe": "elastic_equal",
+        "metric": "ke_fraction",
+        "expected": 1.0,
+        "tolerance_percent": 8
+      },
+      {
+        "kind": "near_expected",
+        "id": "ke_half_inelastic_equal",
+        "description": "Perfectly inelastic equal-mass collision retains exactly 50% of KE.",
+        "probe": "inelastic_equal",
+        "metric": "ke_fraction",
+        "expected": 0.5,
+        "tolerance_percent": 12
+      },
+      {
+        "kind": "near_expected",
+        "id": "orange_takes_full_speed_elastic_equal",
+        "description": "Orange ball should receive all of blue's speed in elastic equal-mass case (v₂' = 1.0 v₀).",
+        "probe": "elastic_equal",
+        "metric": "v2_after",
+        "expected": 1.0,
+        "tolerance_percent": 5
+      },
+      {
+        "kind": "near_expected",
+        "id": "ke_conserved_elastic_heavy",
+        "description": "KE fraction should be ≈ 1.0 for elastic heavy-ball collision.",
+        "probe": "elastic_heavy",
+        "metric": "ke_fraction",
+        "expected": 1.0,
+        "tolerance_percent": 8
+      },
+      {
+        "kind": "monotonic",
+        "id": "restitution_increases_ke_fraction",
+        "description": "Higher restitution should yield higher KE fraction (inelastic_equal < elastic_equal).",
+        "probe_order": ["inelastic_equal", "elastic_equal"],
+        "metric": "ke_fraction",
+        "direction": "increasing"
+      },
+      {
+        "kind": "near_expected",
+        "id": "light_ball_bounces_back",
+        "description": "Light blue ball (mr = 0.25, e = 1) should reverse direction at −0.6 v₀.",
+        "probe": "elastic_light",
+        "metric": "v1_after",
+        "expected": -0.6,
+        "tolerance_percent": 15
+      }
+    ]
+  }
+}

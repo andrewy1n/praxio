@@ -248,6 +248,13 @@ export function validateDesignDocConsistency(
         )
       }
     }
+    if (Object.keys(pr.params).length === 0) {
+      addError(
+        errors,
+        `verification.probes[${i}].params`,
+        'Probe params must not be empty — include all design-doc param names with concrete values',
+      )
+    }
     for (const k of Object.keys(pr.params)) {
       if (!paramNames.has(k)) {
         addError(

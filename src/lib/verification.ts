@@ -1,4 +1,6 @@
 import type { DesignDoc, VerificationReport, VerificationCheckResult, ProbeResult } from './types'
+import { praxioRuntimeMath } from './runtimeMathNode'
+import { praxioRuntimePhysics } from './runtimePhysicsNode'
 
 // ─── Headless Runtime Adapter ─────────────────────────────────────────────────
 // Executes sim code without a canvas. Stubs out all drawing calls.
@@ -16,6 +18,8 @@ function buildHeadlessRuntime(paramOverrides: Record<string, number>) {
   let phaseDone = false
 
   const runtime = {
+    physics: praxioRuntimePhysics,
+    math: praxioRuntimeMath,
     registerParam(name: string, opts: { min: number; max: number; default: number; label: string; unit?: string }) {
       if (!(name in params)) {
         params[name] = opts.default
@@ -37,6 +41,20 @@ function buildHeadlessRuntime(paramOverrides: Record<string, number>) {
     reportPhase(phase: string) {
       if (phase === 'done') phaseDone = true
     },
+    episodic({ onLaunch: onLaunchCb, onReset: onResetCb }: { onLaunch: LaunchCallback; onReset: () => void }) {
+      launchCallback = () => {
+        phaseDone = false
+        onLaunchCb()
+      }
+      runtime.onReset(onResetCb)
+    },
+    endEpisode() {
+      if (!phaseDone) phaseDone = true
+      runtime.reportPhase('done')
+    },
+    setCoordinateTransform(_opts: unknown) {},
+    toScreenX(_x: number) { return 0 },
+    toScreenY(_y: number) { return 0 },
   }
 
   return {

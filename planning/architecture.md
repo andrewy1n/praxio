@@ -16,7 +16,8 @@ Praxio is a Next.js application (App Router) with no separate backend process. A
 │                        Vercel Edge / Node                        │
 │                                                                  │
 │   /api/generate          /api/tutor                             │
-│   Pass 1 + Pass 2        Two-call tutor turn                    │
+│   Curriculum + Sim Builder (+ Verification Spec)                │
+│                          Two-call tutor turn                    │
 │   Gemma 4 31B-it         Call 1: tools (generateText)           │
 │   generateObject         Call 2: text  (streamText)             │
 │   Behavioral verifier    Gemini 2.5 Flash via @ai-sdk/google    │
@@ -60,10 +61,11 @@ Praxio is a Next.js application (App Router) with no separate backend process. A
 **`/api/generate`**
 Runs the simulation generation orchestration. Accepts a concept string, returns a design document and sim code string. Keeps the Google AI Studio key server-side. The route should stay thin: request parsing, response shaping, and calling the generation pipeline.
 
-- Pass 1: `generateObject` → typed design doc JSON (Zod schema enforced)
+- Curriculum agent: `generateObject` → typed design doc JSON (Zod schema enforced)
+- Verification-spec agent: `generateObject` → `verification` block (probes/invariants)
 - Design-doc consistency checks: verify internal ID references before code generation
-- Pass 2: `generateText` → sim code string
-- Static validation after Pass 2; retry Pass 2 with static error context
+- Sim-builder agent: `generateText` → sim code string
+- Static validation after sim-builder generation; retry sim-builder with static error context
 - Behavioral verification after static validation; generated code must satisfy the design doc's probe cases and invariants
 - Template fallback when generation cannot produce a statically valid and behaviorally verified sim
 - Generation trace records attempts, failures, fallback choice, and timings for debugging
@@ -79,7 +81,7 @@ Internal responsibilities should be split by concern rather than accumulated ins
 | Sim-code generation | Produce sandbox-safe JavaScript from a verified design doc |
 | Static validation | Check syntax/runtime-shape constraints before any iframe or headless execution |
 | Behavioral verification | Run deterministic probes against generated behavior |
-| Retry orchestration | Decide which feedback to send to Pass 2 and maintain separate failure context |
+| Retry orchestration | Decide which feedback to send to the sim-builder agent and maintain separate failure context |
 | Template fallback registry | Return a known-good sim when model generation exhausts its budget |
 | Generation trace | Preserve attempt-level observability without leaking implementation details to the client |
 
@@ -121,7 +123,7 @@ The tutor is implemented as two routes (`/api/tutor/stage`, `/api/tutor/speak`) 
 
 The iframe is a static HTML file pre-loaded with `simRuntime.js` and the selected renderer library. On `LOAD_SIM`, the bootstrap executes the generated code via `new Function('runtime', code)`. The runtime never touches the parent DOM.
 
-Renderer selection is made by Pass 1 based on concept domain:
+Renderer selection is made by the curriculum agent based on concept domain:
 
 | Domain | Renderer | Library pre-loaded in iframe |
 |---|---|---|
@@ -145,23 +147,26 @@ User types/speaks concept
 ElevenLabs Scribe → transcript string
         │
         ▼
-POST /api/generate { concept }
+POST /api/generate { concept, sessionId }  (optional `?stream=1` → NDJSON progress_step_* events)
         │
-        ├── Pass 1: generateObject → DesignDoc JSON
-        │     (renderer, params, equations, staging, Socratic plan, verification)
+        ├── Curriculum agent: generateObject → DesignDoc core JSON
+        │     (renderer, params, equations, staging, Socratic plan)
+        │
+        ├── Verification-spec agent: generateObject → verification JSON
+        │     (probes, invariants, metric expectations)
         │
         ├── validateDesignDocConsistency() → errors[]
         │     (param/region/event/probe/invariant references must line up)
         │
-        ├── Pass 2: generateText → sim code string
+        ├── Sim-builder agent: generateText → sim code string
         │     (full SDK spec + design doc in system prompt)
         │
         ├── validateSimModule() → errors[]
-        │     (retry Pass 2 with static error context)
+        │     (retry sim-builder agent with static error context)
         │
         ├── verifySimBehavior() → invariant results[]
         │     (runs deterministic probes in a headless runtime)
-        │     (retry Pass 2 with failed invariants as feedback)
+        │     (retry sim-builder agent with failed invariants as feedback)
         │
         ├── getTemplateForDomain() if retry budgets exhaust
         │
@@ -171,6 +176,9 @@ POST /api/generate { concept }
 └── { designDoc, simCode, verification }
               │
               ▼
+Client navigates to workspace; overlay until iframe posts MANIFEST (runtime ready)
+        │
+        ▼
 Client selects iframe template by designDoc.renderer
 Client sends postMessage { type: 'LOAD_SIM', code: simCode }
         │
@@ -197,7 +205,7 @@ Behavioral verification is part of generation, not a tutor-time feature. The des
 - `verification.invariants`: relationships that should hold across probe outputs
 - per-invariant tolerances: acceptable numeric error for approximate simulations
 
-The verifier runs the generated sim in a headless runtime adapter that implements the same SDK surface as the iframe runtime but records param values, emitted events, and final metrics instead of rendering pixels. It executes each probe, compares observed metrics to the expected relationships, and returns a structured report. Failed checks are appended to the Pass 2 retry prompt:
+The verifier runs the generated sim in a headless runtime adapter that implements the same SDK surface as the iframe runtime but records param values, emitted events, and final metrics instead of rendering pixels. It executes each probe, compares observed metrics to the expected relationships, and returns a structured report. Failed checks are appended to the sim-builder retry prompt:
 
 ```
 Previous attempt failed behavioral verification:

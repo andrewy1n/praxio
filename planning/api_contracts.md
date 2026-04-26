@@ -7,32 +7,165 @@
 
 ### `POST /api/generate`
 
-Runs the two-pass simulation generation pipeline server-side. Keeps the Google AI Studio key out of the client.
+Runs the multi-agent simulation generation pipeline server-side. Keeps the Google AI Studio key out of the client.
+
+**Implementation note (sim-builder):** On retry (after static validation or behavioral invariant failures), the sim-builder model receives the previous candidate source plus a minimal-edit instruction and still returns a full `simCode` string — not a textual diff. First generation attempt uses a clean prompt without prior code. This does not change the response types below.
 
 **Request**
 ```typescript
 type GenerateRequest = {
   concept: string   // raw student input, e.g. "projectile motion"
+  /** Anonymous session id (e.g. localStorage); required when persisting workspaces to MongoDB */
+  sessionId: string
 }
 ```
 
-**Response**
+**Response (JSON, default `Content-Type: application/json`)**
 ```typescript
 type GenerateResponse = {
   designDoc: DesignDoc
   simCode: string
   verification: VerificationReport
-  retries: number        // how many Pass 2 retries were needed (0–3)
-  fromTemplate: boolean  // true if 3-strike fallback was used
+  /** How many sim-builder model generations were performed (includes repair rounds) */
+  retries: number
+  fromTemplate: boolean  // true if template fallback was used
+  workspaceId?: string     // when workspace was saved to MongoDB
 }
 
 type GenerateErrorResponse = {
   error: string
-  phase: 'pass1' | 'pass2' | 'validation'
+  phase:
+    | 'requestValidation'
+    | 'curriculumAgent'
+    | 'verificationSpecAgent'
+    | 'simBuilderAgent'
+    | 'designDocConsistency'
+    | 'validation'
+    | 'behavioralVerification'
+    | 'fallback'
+    | 'template'
+  consistencyErrors?: Array<{ path: string; message: string }>
+  curriculumAgentDiagnosis?: CurriculumAgentDiagnosis
+  verificationSpecAgentDiagnosis?: CurriculumAgentDiagnosis
+  /** ... see `src/lib/types.ts` for full shape */
 }
 ```
 
-**Pass 1 — generateObject schema (Zod)**
+**Streaming progress (`?stream=1`)**
+
+`Content-Type: application/x-ndjson`. One JSON object per line (LF):
+
+- `{ "type": "started" }` — stream opened
+- `{ "type": "progress_step_started" | "progress_step_completed" | "progress_step_failed", "step": GenerateProgressStepId, ... }` — real-time pipeline steps (`curriculum`, `verificationSpec`, `designDocConsistency`, `simBuilder` with optional `subStep`: `model` | `static`, `behavioralVerify`, `fallback`). Failures include `willRetry` where applicable.
+- `{ "type": "attempt", "attempt": { ... } }` — same attempt records as in-memory `GenerationAttemptTrace` (for debugging; optional in UI)
+- `{ "type": "result", "result": GenerateResponse }` — success (includes `trace` when debug is on)
+- `{ "type": "error", "status": number, "error": GenerateErrorResponse }` — terminal failure
+
+The landing page should drive the five user-visible steps from `progress_step_*` (plus final navigation), not from timers. Client must send `?stream=1` to opt in.
+
+### `GET /api/workspaces`
+
+Lists recent workspaces for the current anonymous session.
+
+**Request**
+```typescript
+type ListWorkspacesQuery = {
+  sessionId: string
+  limit?: number // default 20, max 50
+}
+```
+
+**Response**
+```typescript
+type WorkspaceListItem = {
+  workspaceId: string
+  concept: string
+  domain: DesignDoc['domain']
+  renderer: DesignDoc['renderer']
+  status: 'in_progress' | 'completed'
+  createdAt: string
+  lastActiveAt: string
+  completedAt?: string
+  completionSummary?: string
+}
+
+type ListWorkspacesResponse = {
+  items: WorkspaceListItem[]
+}
+```
+
+**Behavior**
+
+- Returns workspaces for `sessionId` only.
+- Sorted by `lastActiveAt` descending.
+- Designed for Landing `Recent workspaces` panel and Workspace switchers.
+
+### `GET /api/workspaces/:workspaceId`
+
+Fetches one workspace for resume/re-entry.
+
+**Request**
+```typescript
+type GetWorkspaceParams = {
+  workspaceId: string
+}
+```
+
+**Response**
+```typescript
+type GetWorkspaceResponse = {
+  workspace: {
+    workspaceId: string
+    sessionId: string
+    concept: string
+    domain: DesignDoc['domain']
+    renderer: DesignDoc['renderer']
+    designDoc: DesignDoc
+    status: 'in_progress' | 'completed'
+    createdAt: string
+    lastActiveAt: string
+    completedAt?: string
+  }
+  branch?: {
+    branchId: string
+    name: string
+    checkpoints: Checkpoint[]
+    conversationHistory: TutorMessage[]
+  }
+  completion?: SessionCompletionState
+}
+```
+
+**Behavior**
+
+- Rejects cross-session access (`workspace.sessionId` must match requester `sessionId`).
+- If `status === 'completed'`, `completion` should be returned so UI can open in
+  post-session completion mode (synthesis + transfer question + completion actions)
+  instead of restarting step progression.
+
+### `PATCH /api/workspaces/:workspaceId`
+
+Updates session progress metadata used by recent-workspace/resume UI.
+
+**Request**
+```typescript
+type UpdateWorkspaceRequest = {
+  sessionId: string
+  status?: 'in_progress' | 'completed'
+  lastActiveAt?: string
+  completedAt?: string
+  completionSummary?: string
+}
+```
+
+**Response**
+```typescript
+type UpdateWorkspaceResponse = {
+  ok: true
+}
+```
+
+**Curriculum + verification-spec output schema (Zod)**
 ```typescript
 import { z } from 'zod'
 
@@ -183,12 +316,14 @@ function validateDesignDocConsistency(designDoc: DesignDoc): DesignDocConsistenc
 
 ```typescript
 type GenerationAttemptTrace = {
-  phase: 'pass1' | 'designDocConsistency' | 'pass2' | 'staticValidation' | 'behavioralVerification' | 'fallback'
+  phase: 'curriculumAgent' | 'verificationSpecAgent' | 'designDocConsistency' | 'simBuilderAgent' | 'staticValidation' | 'behavioralVerification' | 'fallback' | 'template'
   attempt: number
   startedAt: number
   endedAt: number
   ok: boolean
   errors?: string[]
+  /** Truncated sim-builder model output for sim-builder and staticValidation attempts (see `src/lib/generationPipeline.ts`) */
+  simBuilderModelOutput?: { charCount: number; truncated: boolean; text: string }
 }
 
 type GenerationTrace = {
@@ -197,6 +332,7 @@ type GenerationTrace = {
   attempts: GenerationAttemptTrace[]
   staticValidationRetries: number
   behavioralVerificationRetries: number
+  simBuilderGenerationCount: number
   fromTemplate: boolean
   templateId?: string
 }
@@ -218,7 +354,7 @@ async function runGenerationPipeline(
 
 `trace` is primarily for server logs and developer/debug responses. The default student-facing response may omit it to avoid exposing prompt/debug internals.
 
-**Pass 1 debug:** When `PRAXIO_DEBUG_GENERATION=1` or request header `x-praxio-debug: 1`, the route passes `debug` into `runGenerationPipeline`. On Pass 1 failure after all attempts, the JSON error body may include `pass1Diagnosis`: local `JSON.parse` error (if any), up to 24 Zod issue `{ path, message }` rows from re-validating the model text, optional `textPreview` (first 1500 chars of raw model output), and `localSchemaOk` when extract+Zod succeed but the AI SDK still reported schema failure (rare). Each failed attempt also logs one line to the server console: `[pass1] attempt N — …`.
+**Curriculum-agent debug:** When `PRAXIO_DEBUG_GENERATION=1` or request header `x-praxio-debug: 1`, the route passes `debug` into `runGenerationPipeline`. On curriculum-agent failure after all attempts, the JSON error body may include `curriculumAgentDiagnosis`: local `JSON.parse` error (if any), up to 24 Zod issue `{ path, message }` rows from re-validating the model text, optional `textPreview` (first 1500 chars of raw model output), and `localSchemaOk` when extract+Zod succeed but the AI SDK still reported schema failure (rare). Similar `verificationSpecAgentDiagnosis` exists for the verification-spec agent. Each failed attempt also logs one line to the server console.
 
 `socratic_plan` is the missing middle layer between the generated simulation and
 the tutor prompts. It plans the lesson around each question, not just around the
@@ -236,9 +372,9 @@ possible. For example, a `numeric_hypothesis` step opens the estimate input,
 a region selection. If `activeSocraticStepId` is omitted from tutor requests, the
 model infers the current step from history and pending events.
 
-**Pass 2 retry contract**
+**Sim-builder retry contract**
 ```typescript
-// On validation failure, retry Pass 2 with error context appended:
+// On validation failure, retry the sim-builder agent with error context appended:
 // "Previous attempt failed with: {errors.join(', ')}. Do not repeat this mistake."
 // Static validation and behavioral verification have separate retry counters.
 // Exhausting either budget loads a template for the closest supported domain.
@@ -251,9 +387,9 @@ type ValidationResult = {
 
 Retry policy:
 
-- Pass 1 schema failure retries Pass 1 up to a small fixed budget before failing the request; consistency failure does not retry Pass 2.
-- Static validation failures retry Pass 2 with static errors only.
-- Behavioral verification failures retry Pass 2 with failed invariant messages only.
+- Curriculum-agent schema failure retries curriculum-agent up to a small fixed budget before failing the request; consistency failure does not retry the sim-builder agent.
+- Static validation failures retry sim-builder agent with static errors only.
+- Behavioral verification failures retry sim-builder agent with failed invariant messages only.
 - Static validation retries should not consume the behavioral verification retry budget.
 - Behavioral verification retries should still run static validation before re-verifying.
 - If all retries fail, select a template from the fallback registry and return `fromTemplate: true`.
@@ -275,7 +411,7 @@ async function verifySimBehavior(
 ): Promise<BehaviorVerificationResult>
 ```
 
-For projectile motion, Pass 1 should emit probes such as:
+For projectile motion, the verification-spec agent should emit probes such as:
 
 ```json
 {
@@ -312,9 +448,12 @@ For projectile motion, Pass 1 should emit probes such as:
 ```typescript
 // app/api/generate/route.ts
 export async function POST(req: Request) {
-  const { concept } = await req.json()
+  const { concept, sessionId } = await req.json()
   if (typeof concept !== 'string' || concept.trim() === '') {
-    return Response.json({ error: 'Concept is required', phase: 'pass1' }, { status: 400 })
+    return Response.json({ error: 'Concept is required', phase: 'requestValidation' }, { status: 400 })
+  }
+  if (typeof sessionId !== 'string' || !sessionId) {
+    return Response.json({ error: 'sessionId is required', phase: 'requestValidation' }, { status: 400 })
   }
 
   const result = await runGenerationPipeline(concept.trim())
@@ -448,7 +587,7 @@ type SpeakRequest = StageRequest & {
 ```
 
 **Response**
-Streaming via Vercel AI SDK `toDataStreamResponse()`. Text chunks only.
+Streaming raw text via `toTextStreamResponse()`. Text chunks only. Note: AI SDK v6 removed `toDataStreamResponse()` — do not use it. The client reads the stream with a `ReadableStream` reader and `TextDecoder`, accumulating chunks directly (no data-stream framing to parse).
 
 **Route skeleton**
 ```typescript
@@ -472,9 +611,85 @@ export async function POST(req: Request) {
     // no tools — removes text/tool competition that drops text-gen reliability
   })
 
-  return result.toDataStreamResponse()
+  return result.toTextStreamResponse()
 }
 ```
+
+**Client consumption**
+```typescript
+const reader = speakRes.body!.getReader()
+const decoder = new TextDecoder()
+let fullText = ''
+while (true) {
+  const { done, value } = await reader.read()
+  if (done) break
+  fullText += decoder.decode(value, { stream: true })
+  // update UI on each chunk for word-by-word streaming
+}
+```
+
+### Socratic Session Completion Contract
+
+When all `designDoc.socratic_plan` steps are complete, the workspace enters an explicit
+completion state instead of continuing the normal loop indefinitely.
+
+**Completion criteria**
+
+- Each step is marked complete when its `exit_condition` has been satisfied by observed
+  interactions/events in the session state machine.
+- Session completion occurs when every step in `socratic_plan` is complete.
+
+**Completion response shape**
+```typescript
+type SessionCompletionState = {
+  isComplete: boolean
+  completedStepIds: string[]
+  completedAt?: number
+  summary?: {
+    // One concise reconciliation turn grounded in the student's actions.
+    synthesis: string
+    // One transfer check to test understanding in a new condition.
+    transferQuestion: string
+  }
+}
+```
+
+**Post-completion tutor behavior**
+
+- The tutor emits one short synthesis turn grounded in what the student did
+  (prediction/manipulation/observation), not a generic recap.
+- The tutor then asks one transfer question that changes conditions while preserving
+  the core concept.
+- After the transfer response, tutor calls become user-driven (e.g. replay/challenge),
+  not automatic step progression.
+
+**Persistence artifact (per workspace session)**
+
+Store a compact completion artifact for retrieval and future UX:
+
+```typescript
+type SessionLearningArtifact = {
+  sessionId: string
+  workspaceId: string
+  completedStepIds: string[]
+  keyMoments: Array<{
+    stepId: string
+    interactionKind: DesignDoc['socratic_plan'][number]['interaction']['kind']
+    observedEvent: string
+    timestamp: number
+  }>
+  finalSynthesis: string
+  transferQuestion: string
+  transferResponse?: string
+  createdAt: Date
+}
+```
+
+**UI actions exposed on completion**
+
+- `try_challenge` — run the transfer-check path (if not already answered)
+- `replay_step` — reopen a specific step in `socratic_plan`
+- `new_concept` — navigate back to landing
 
 ---
 
@@ -918,7 +1133,7 @@ await db.collection('workspaces').createIndex({ createdAt: 1 }, { expireAfterSec
 
 ## Code Validation Contract
 
-Runs between Pass 2 output and `LOAD_SIM` dispatch. Source of truth is `src/runtime/validation.ts`.
+Runs between sim-builder output and `LOAD_SIM` dispatch. Source of truth is `src/runtime/validation.ts`.
 
 ```typescript
 type ValidationResult = {

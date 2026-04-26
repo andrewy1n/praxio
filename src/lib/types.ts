@@ -55,6 +55,15 @@ const ProbeSchema = z.object({
   expected_metrics: z.array(z.string()),
 })
 
+// Raw probe as the model emits it: params is an array so JSON schema enforces minItems:1.
+// normalizeVerificationBlock converts this to ProbeSchema (record) before pipeline use.
+const ProbeRawSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  params: z.array(z.object({ name: z.string(), value: z.number() })).min(1).max(20),
+  expected_metrics: z.array(z.string()),
+})
+
 const CanonicalInvariantSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('approximately_equal'),
@@ -297,9 +306,27 @@ const InvariantSchema = z.preprocess(
   CanonicalInvariantSchema,
 )
 
-const DesignDocCoreSchema = z.object({
+/** Behavioral verification block (emitted by verification-spec agent, merged into DesignDoc). */
+export const VerificationBlockSchema = z.object({
+  summary: z.string(),
+  probes: z.array(ProbeSchema).min(2).max(8),
+  invariants: z.array(InvariantSchema).min(2).max(8),
+})
+export type VerificationBlock = z.infer<typeof VerificationBlockSchema>
+
+/** Raw verification block as the model outputs it — probe params is an array (minItems:1 in JSON schema). */
+export const VerificationBlockRawSchema = z.object({
+  summary: z.string(),
+  probes: z.array(ProbeRawSchema).min(2).max(8),
+  invariants: z.array(InvariantSchema).min(2).max(8),
+})
+export type VerificationBlockRaw = z.infer<typeof VerificationBlockRawSchema>
+
+const DesignDocBaseFieldsSchema = z.object({
   concept: z.string(),
   domain: z.enum(['physics', 'math', 'biology', 'chemistry', 'general']),
+  /** Optional: which runtime primitive pack to use (e.g. physics.projectile, math.derivative_line). */
+  primitive: z.string().optional(),
   renderer: z.enum(['p5', 'canvas2d', 'jsxgraph', 'matter']),
   episodic: z.boolean(),
   params: z.array(z.object({
@@ -318,14 +345,20 @@ const DesignDocCoreSchema = z.object({
     highlighted: z.array(z.string()),
   }),
   socratic_plan: z.array(SocraticStepSchema).min(2).max(6),
-  verification: z.object({
-    summary: z.string(),
-    probes: z.array(ProbeSchema).min(2).max(8),
-    invariants: z.array(InvariantSchema).min(2).max(8),
-  }),
 })
 
-export const DesignDocSchema = z.preprocess(coerceDesignDocJson, DesignDocCoreSchema)
+/** Design doc from curriculum agent only (no verification block). */
+export const DesignDocCoreSchema = z.preprocess(
+  coerceDesignDocJson,
+  DesignDocBaseFieldsSchema,
+)
+export type DesignDocCore = z.infer<typeof DesignDocCoreSchema>
+
+const DesignDocWithVerificationSchema = DesignDocBaseFieldsSchema.extend({
+  verification: VerificationBlockSchema,
+})
+
+export const DesignDocSchema = z.preprocess(coerceDesignDocJson, DesignDocWithVerificationSchema)
 
 export type DesignDoc = z.infer<typeof DesignDocSchema>
 export type SocraticStep = z.infer<typeof SocraticStepSchema>
@@ -409,6 +442,8 @@ export type IframeMessage =
 
 export type GenerateRequest = {
   concept: string
+  /** Anonymous session id from localStorage; required for DB-backed workspaces. */
+  sessionId: string
 }
 
 export type GenerateResponse = {
@@ -417,31 +452,86 @@ export type GenerateResponse = {
   verification: VerificationReport
   retries: number
   fromTemplate: boolean
+  /** Set when workspace was persisted to MongoDB. */
+  workspaceId?: string
 }
 
-/** Pass 1 failure diagnostics (local JSON extract + Zod). */
-export type Pass1ZodIssue = { path: string; message: string }
+/** Curriculum-agent failure diagnostics (local JSON extract + Zod). */
+export type CurriculumAgentZodIssue = { path: string; message: string }
 
-export type Pass1Diagnosis = {
+export type CurriculumAgentDiagnosis = {
   parseError?: string
-  zodIssues: Pass1ZodIssue[]
+  zodIssues: CurriculumAgentZodIssue[]
   /** Set when JSON + schema succeed here but AI SDK still failed (rare). */
   localSchemaOk?: boolean
-  /** Raw model text prefix when debug on (see `pass1Debug` / API route). */
+  /** Raw model text prefix when debug on. */
   textPreview?: string
 }
 
+export type GenerateErrorPhase =
+  | 'curriculumAgent'
+  | 'verificationSpecAgent'
+  | 'simBuilderAgent'
+  | 'requestValidation'
+  | 'designDocConsistency'
+  | 'validation'
+  | 'behavioralVerification'
+  | 'fallback'
+  | 'template'
+
 export type GenerateErrorResponse = {
   error: string
-  phase: 'pass1' | 'pass2' | 'validation' | 'verification' | 'designDocConsistency' | 'fallback' | 'template'
+  phase: GenerateErrorPhase
   /** When `phase === 'designDocConsistency'` */
   consistencyErrors?: Array<{ path: string; message: string }>
   generatedText?: string
   validationErrors?: string[]
   verification?: VerificationReport
-  /** When `phase === 'pass1'` and debug enabled — see `POST /api/generate` + `PRAXIO_DEBUG_GENERATION`. */
-  pass1Diagnosis?: Pass1Diagnosis
+  /** When `phase === 'curriculumAgent'` and debug enabled. */
+  curriculumAgentDiagnosis?: CurriculumAgentDiagnosis
+  /** When `phase === 'verificationSpecAgent'` and debug enabled. */
+  verificationSpecAgentDiagnosis?: CurriculumAgentDiagnosis
 }
+
+/** UI + stream progress: high-level generation steps. */
+export type GenerateProgressStepId =
+  | 'curriculum'
+  | 'verificationSpec'
+  | 'designDocConsistency'
+  | 'simBuilder'
+  | 'behavioralVerify'
+  | 'fallback'
+
+/**
+ * NDJSON events from `POST /api/generate?stream=1` (and shared contract for clients).
+ * `attempt` mirrors internal pipeline `GenerationAttemptTrace` for power users / trace.
+ */
+export type GenerateStreamEvent =
+  | { type: 'started' }
+  | {
+    type: 'progress_step_started'
+    step: GenerateProgressStepId
+    /** Sub-step within sim-builder: model generation vs static check */
+    subStep?: 'model' | 'static'
+    attempt?: number
+  }
+  | {
+    type: 'progress_step_completed'
+    step: GenerateProgressStepId
+    ok: boolean
+    subStep?: 'model' | 'static'
+    attempt?: number
+    detail?: string
+  }
+  | {
+    type: 'progress_step_failed'
+    step: GenerateProgressStepId
+    error: string
+    willRetry: boolean
+  }
+  | { type: 'attempt'; attempt: Record<string, unknown> }
+  | { type: 'result'; result: GenerateResponse & { trace?: unknown } }
+  | { type: 'error'; status: number; error: GenerateErrorResponse }
 
 export type SimEvent = {
   event: string
@@ -464,6 +554,8 @@ export type StageRequest = {
   manifest: Manifest
   designDoc: DesignDoc
   sessionId: string
+  /** When omitted or `dev`, tutor routes skip MongoDB (e.g. test harness). */
+  workspaceId?: string
   activeSocraticStepId?: string
 }
 
@@ -484,15 +576,118 @@ export type SpeakRequest = StageRequest & {
   appliedToolCalls: AppliedToolCall[]
 }
 
+// ─── Workspace API (planning/api_contracts.md) ───────────────────────────────
+
+export type WorkspaceStatus = 'in_progress' | 'completed'
+
+export type ListWorkspacesQuery = {
+  sessionId: string
+  limit?: number
+}
+
+export type WorkspaceListItem = {
+  workspaceId: string
+  concept: string
+  domain: DesignDoc['domain']
+  renderer: DesignDoc['renderer']
+  status: WorkspaceStatus
+  createdAt: string
+  lastActiveAt: string
+  completedAt?: string
+  completionSummary?: string
+}
+
+export type ListWorkspacesResponse = {
+  items: WorkspaceListItem[]
+}
+
+export type GetWorkspaceParams = {
+  workspaceId: string
+}
+
+export type SessionCompletionState = {
+  isComplete: boolean
+  completedStepIds: string[]
+  completedAt?: number
+  summary?: {
+    synthesis: string
+    transferQuestion: string
+  }
+}
+
+export type GetWorkspaceResponse = {
+  workspace: {
+    workspaceId: string
+    sessionId: string
+    concept: string
+    domain: DesignDoc['domain']
+    renderer: DesignDoc['renderer']
+    designDoc: DesignDoc
+    status: WorkspaceStatus
+    createdAt: string
+    lastActiveAt: string
+    completedAt?: string
+    simCode: string
+  }
+  branch?: {
+    branchId: string
+    name: string
+    checkpoints: Checkpoint[]
+    conversationHistory: TutorMessage[]
+    currentSocraticStepId?: string
+  }
+  completion?: SessionCompletionState
+}
+
+export type UpdateWorkspaceRequest = {
+  sessionId: string
+  status?: WorkspaceStatus
+  lastActiveAt?: string
+  completedAt?: string
+  completionSummary?: string
+  /** Replaces completed step ids when provided (merge on server). */
+  completedStepIds?: string[]
+}
+
+export type UpdateWorkspaceResponse = {
+  ok: true
+}
+
+export type SessionLearningArtifact = {
+  sessionId: string
+  workspaceId: string
+  completedStepIds: string[]
+  keyMoments: Array<{
+    stepId: string
+    interactionKind: DesignDoc['socratic_plan'][number]['interaction']['kind']
+    observedEvent: string
+    timestamp: number
+  }>
+  finalSynthesis: string
+  transferQuestion: string
+  transferResponse?: string
+  createdAt: Date
+}
+
 // ─── MongoDB Schemas ──────────────────────────────────────────────────────────
 
 export type Workspace = {
+  workspaceId: string
   sessionId: string
   concept: string
-  domain: string
-  renderer: 'p5' | 'canvas2d' | 'jsxgraph' | 'matter'
+  domain: DesignDoc['domain']
+  renderer: DesignDoc['renderer']
   designDoc: DesignDoc
+  simCode: string
+  status: WorkspaceStatus
   createdAt: Date
+  lastActiveAt: Date
+  completedAt?: Date
+  completionSummary?: string
+  completedStepIds: string[]
+  completion?: SessionCompletionState
+  /** Persisted synthesis / transfer for resume; optional until session completes. */
+  learningArtifact?: SessionLearningArtifact
 }
 
 export type Checkpoint = {
@@ -503,11 +698,14 @@ export type Checkpoint = {
 }
 
 export type Branch = {
+  branchId: string
   workspaceId: string
   sessionId: string
   name: string
   checkpoints: Checkpoint[]
   conversationHistory: TutorMessage[]
+  /** Tracks UI-selected step for completion transitions. */
+  currentSocraticStepId?: string
   createdAt: Date
 }
 

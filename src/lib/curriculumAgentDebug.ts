@@ -1,4 +1,8 @@
-import { DesignDocSchema, type Pass1Diagnosis } from '@/lib/types'
+import {
+  DesignDocCoreSchema,
+  VerificationBlockSchema,
+  type CurriculumAgentDiagnosis,
+} from '@/lib/types'
 
 /** Strip fences, take outermost `{`…`}` slice, JSON.parse */
 export function extractJsonFromModelText(
@@ -40,12 +44,29 @@ function formatIssuePath(path: ReadonlyArray<PropertyKey>): string {
   return s
 }
 
-/** Re-run extraction + Zod locally — explains most `NoObjectGeneratedError` failures. */
-export function diagnosePass1ModelText(text: string | undefined): Pass1Diagnosis {
+/** Re-run extraction + Zod locally — explains most `NoObjectGeneratedError` failures for curriculum output. */
+export function diagnoseCurriculumAgentModelText(text: string | undefined): CurriculumAgentDiagnosis {
   const extracted = extractJsonFromModelText(text)
   if (!extracted.ok) return { parseError: extracted.error, zodIssues: [] }
 
-  const r = DesignDocSchema.safeParse(extracted.value)
+  const r = DesignDocCoreSchema.safeParse(extracted.value)
+  if (r.success) {
+    return { zodIssues: [], localSchemaOk: true }
+  }
+
+  const zodIssues = r.error.issues.slice(0, 24).map(issue => ({
+    path: formatIssuePath(issue.path as PropertyKey[]),
+    message: issue.message,
+  }))
+  return { zodIssues }
+}
+
+/** Same for verification-spec structured output. */
+export function diagnoseVerificationSpecAgentModelText(text: string | undefined): CurriculumAgentDiagnosis {
+  const extracted = extractJsonFromModelText(text)
+  if (!extracted.ok) return { parseError: extracted.error, zodIssues: [] }
+
+  const r = VerificationBlockSchema.safeParse(extracted.value)
   if (r.success) {
     return { zodIssues: [], localSchemaOk: true }
   }

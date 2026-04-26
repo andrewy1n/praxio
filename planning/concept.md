@@ -143,7 +143,7 @@ Observed behavior is compared to expected relationships
 Only verified sims become tutor-controllable learning environments
 ```
 
-For projectile motion, verification can check that 30° and 60° produce approximately equal range, 45° is near the maximum range under equal launch/landing height, increasing gravity decreases range, and doubling initial velocity roughly quadruples range. These are not UI smoke tests; they are executable behavioral claims about the concept. If verification fails, Pass 2 retries with the failed invariant as feedback, and repeated failure escalates to a pre-verified template.
+For projectile motion, verification can check that 30° and 60° produce approximately equal range, 45° is near the maximum range under equal launch/landing height, increasing gravity decreases range, and doubling initial velocity roughly quadruples range. These are not UI smoke tests; they are executable behavioral claims about the concept. If verification fails, the sim-builder agent retries with the failed invariant as feedback, and repeated failure escalates to a pre-verified template.
 
 ### System Architecture
 
@@ -155,10 +155,12 @@ ElevenLabs STT (voice path)
 ┌────────────────────────────────────────────┐
 │         Google AI Studio (@ai-sdk/google)   │
 │                                             │
-│  Pass 1:  Gemma 4 31B-it                    │
-│           concept → design doc JSON         │
-│  Pass 2:  Gemma 4 31B-it                    │
-│           design doc → sim JS module        │
+│  Curriculum Agent:       Gemma 4 31B-it     │
+│           concept → design doc core JSON    │
+│  Verification Spec Agent: Gemma 4 31B-it    │
+│           design doc core → probes/invariants│
+│  Sim Builder Agent:      Gemma 4 31B-it     │
+│           full design doc → sim JS module   │
 │  Verify:  deterministic probes + invariants │
 │  Tutor:   Gemini 2.5 Flash, two-call turn   │
 │           Call 1: tool calls (stage scene)  │
@@ -200,8 +202,9 @@ ElevenLabs STT (voice path)
 
 All AI calls go through the Vercel AI SDK (`ai` + `@ai-sdk/google`) from Next.js API routes. Models are split by role based on measured behavior from our spike work:
 
-- **Pass 1** (concept → design doc): **Gemma 4 31B-it**. Structured JSON output via `generateObject`. Fast, cheap, reliable for constrained output.
-- **Pass 2** (design doc → sim code): **Gemma 4 31B-it**. Gemma 4's coding performance handles the constrained SDK generation task; latency is tolerable for a one-shot generation step.
+- **Curriculum agent** (concept → design doc core): **Gemma 4 31B-it**. Structured JSON output via `generateObject`.
+- **Verification-spec agent** (design doc core → probes/invariants): **Gemma 4 31B-it**. Structured JSON output via `generateObject`.
+- **Sim-builder agent** (full design doc → sim code): **Gemma 4 31B-it**. Coding output via `generateText`.
 - **Socratic tutor**: **Gemini 2.5 Flash**, two-call pattern per turn. Gemma was disqualified for this role by 10–20s end-to-end latency and a 40% text-generation rate when tools were also requested; Gemini 2.5 Flash runs at ~1.4s median and, split into a tools-call and a text-call, produces speech at the required reliability. Keeping Gemma for the generation pipeline preserves the "powered by Gemma 4" story for the novel part of the product (on-demand simulation generation).
 
 ### Voice — ElevenLabs (bidirectional)
@@ -224,9 +227,9 @@ A branch document holds its full checkpoint stack and conversation history inlin
 
 ### Simulation Runtime
 
-- **Renderer**: p5.js for physics and motion sims; JSXGraph for math/calculus sims; Matter.js for rigid body physics; canvas2d as fallback. Pass 1 selects the renderer based on concept domain.
+- **Renderer**: p5.js for physics and motion sims; JSXGraph for math/calculus sims; Matter.js for rigid body physics; canvas2d as fallback. The curriculum agent selects the renderer based on concept domain.
 - **Execution**: Generated sim modules run inside an iframe sandbox via `new Function('runtime', code)`. No files written to disk.
-- **Generation**: Two-pass pipeline with static validation and behavioral verification before iframe load. Repeated static or behavioral failures escalate to a pre-verified template.
+- **Generation**: multi-agent pipeline (curriculum-agent, verification-spec-agent, sim-builder-agent) with static validation and behavioral verification before iframe load. Repeated static or behavioral failures escalate to a pre-verified template.
 - **Behavioral verification**: generated simulations must satisfy the design doc's probe cases and invariants before the tutor can use them. Static validation proves the code is safe enough to run; behavioral verification proves the model is plausible enough to teach from.
 
 ### UI Prototyping — Figma Make
@@ -275,7 +278,7 @@ A university or high school student, 30 minutes before a study session or office
 
 A judge opens the app. They speak into the mic: *"I don't understand why launch angle affects projectile range the way it does."*
 
-ElevenLabs STT transcribes it. Gemma 4 Pass 1 runs. Pass 2 runs. A live simulation appears — a cannon on a flat plane, a trajectory arc, three labeled sliders: **Launch Angle**, **Initial Velocity**, **Gravity**.
+ElevenLabs STT transcribes it. Gemma 4 curriculum-agent runs. Verification-spec-agent runs. Sim-builder-agent runs. A live simulation appears — a cannon on a flat plane, a trajectory arc, three labeled sliders: **Launch Angle**, **Initial Velocity**, **Gravity**.
 
 Before it appears, Praxio shows a verification card: **30° and 60° range symmetry — passed. 45° near-max range — passed. Higher gravity lowers range — passed. Doubling velocity quadruples range — passed.** The judge sees that the agent did not merely generate a pretty animation; it checked the model's behavior against physics invariants.
 

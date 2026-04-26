@@ -22,11 +22,7 @@ export function getPresetIdForDomain(domain: DesignDoc['domain']): string | null
   return DOMAIN_TO_PRESET[domain] ?? null
 }
 
-export async function loadTemplateByDomain(
-  domain: DesignDoc['domain'],
-): Promise<LoadedTemplate | null> {
-  const id = getPresetIdForDomain(domain)
-  if (!id) return null
+async function loadPresetById(id: string): Promise<LoadedTemplate | null> {
   const base = path.join(process.cwd(), 'public', 'presets', id)
   try {
     const [docRaw, code] = await Promise.all([
@@ -39,4 +35,16 @@ export async function loadTemplateByDomain(
   } catch {
     return null
   }
+}
+
+export async function loadTemplateByDomain(
+  domain: DesignDoc['domain'],
+): Promise<LoadedTemplate | null> {
+  const id = getPresetIdForDomain(domain)
+  if (!id) return null
+  return loadPresetById(id)
+}
+
+export async function loadTemplateById(id: string): Promise<LoadedTemplate | null> {
+  return loadPresetById(id)
 }

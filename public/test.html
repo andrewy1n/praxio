@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <!--
   Praxio test harness — open at http://localhost:3000/test.html
-  Tests the full generate pipeline (Pass 1 → design-doc consistency → Pass 2 →
-  behavioral verification → optional preset fallback) → iframe → tutor loop, no React UI.
+  Exercises the multi-agent pipeline: curriculum agent → verification-spec agent →
+  design-doc consistency → sim builder (static validation) → behavioral verification →
+  optional template fallback → iframe (LOAD_SIM) → tutor, without the React app.
 
-  Observability: the "Request pipeline trace" checkbox sends X-Praxio-Debug: 1 so
-  /api/generate includes a generation trace in the JSON (same as PRAXIO_DEBUG_GENERATION=1).
+  Observability: "Request pipeline trace" sends X-Praxio-Debug: 1 so /api/generate
+  can include a generation trace in the JSON (same as PRAXIO_DEBUG_GENERATION=1).
+  Trace uses agent-era fields: e.g. simBuilderGenerationCount, simBuilderModelOutput.
 -->
 <html>
 <head>
@@ -80,7 +82,7 @@
   <label class="obs-check"><input type="checkbox" id="chk-debug-trace" checked /> Request pipeline <code>trace</code> (<code>X-Praxio-Debug: 1</code> — also works with <code>PRAXIO_DEBUG_GENERATION=1</code> on the server)</label>
   <button id="btn-generate">Generate</button>
   <div id="generation-obs" class="generation-obs obs-pending" aria-live="polite">
-    <div class="obs-line"><span class="obs-k">Pipeline:</span> not run yet. Uses Pass 1 → design-doc consistency → Pass 2 (static) → behavioral verification → optional preset fallback.</div>
+    <div class="obs-line"><span class="obs-k">Pipeline:</span> not run yet. Order: curriculum agent → verification-spec agent → design-doc consistency → sim builder (static) → behavioral verify → template fallback (if needed).</div>
   </div>
 
   <hr />
@@ -88,6 +90,8 @@
   <select id="preset-select">
     <option value="projectile-motion">Projectile Motion (p5)</option>
     <option value="population-growth">Logistic Population Growth (canvas2d)</option>
+    <option value="diffusion">Diffusion — Fick's Law (canvas2d)</option>
+    <option value="elastic-inelastic-collisions">Elastic / Inelastic Collisions (matter)</option>
   </select>
   <button id="btn-load-preset">Load Preset</button>
 
@@ -944,6 +948,16 @@
       let html = `<div class="obs-line"><span class="obs-k">HTTP</span> <span class="obs-mono">${status}</span> · <span class="obs-k">${elapsedMs}ms</span></div>`
       html += `<div class="obs-line"><span class="obs-k">phase</span> <span class="obs-mono">${escapeHtml(phase)}</span></div>`
       html += `<div class="obs-line"><span class="obs-k">error</span> ${escapeHtml(data.error || JSON.stringify(data))}</div>`
+      if (data.curriculumAgentDiagnosis && typeof data.curriculumAgentDiagnosis === 'object') {
+        const d = data.curriculumAgentDiagnosis
+        const n = (d.zodIssues && d.zodIssues.length) || 0
+        html += `<details class="obs-trace-wrap"><summary>curriculumAgentDiagnosis (${n} zod issues)</summary><pre class="obs-trace-pre">${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`
+      }
+      if (data.verificationSpecAgentDiagnosis && typeof data.verificationSpecAgentDiagnosis === 'object') {
+        const d = data.verificationSpecAgentDiagnosis
+        const n = (d.zodIssues && d.zodIssues.length) || 0
+        html += `<details class="obs-trace-wrap"><summary>verificationSpecAgentDiagnosis (${n} zod issues)</summary><pre class="obs-trace-pre">${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`
+      }
       if (Array.isArray(data.consistencyErrors) && data.consistencyErrors.length) {
         html += `<div class="obs-line"><span class="obs-k">design-doc consistency</span></div>`
         for (const e of data.consistencyErrors) {
@@ -971,7 +985,7 @@
     const checks = ver && Array.isArray(ver.checks) ? ver.checks : []
     const passedChecks = checks.filter(c => c.passed).length
     const fromTpl = data.fromTemplate === true
-    let html = `<div class="obs-line"><span class="obs-k">HTTP</span> <span class="obs-mono">200</span> · <span class="obs-k">${elapsedMs}ms</span> · <span class="obs-k">Pass 2 calls</span> <span class="obs-mono">${data.retries ?? '?'}</span></div>`
+    let html = `<div class="obs-line"><span class="obs-k">HTTP</span> <span class="obs-mono">200</span> · <span class="obs-k">${elapsedMs}ms</span> · <span class="obs-k">sim-builder generations</span> <span class="obs-mono">${data.retries ?? '?'}</span> <span class="obs-k">(</span><code>retries</code><span class="obs-k"> = </span><code>trace.simBuilderGenerationCount</code><span class="obs-k">)</span></div>`
     html += `<div class="obs-line"><span class="obs-k">fromTemplate</span> <span class="obs-mono">${fromTpl}</span>`
     if (dd) {
       html += ` · <span class="obs-k">domain</span> <span class="obs-mono">${escapeHtml(dd.domain)}</span> · <span class="obs-k">renderer</span> <span class="obs-mono">${escapeHtml(dd.renderer)}</span> · <span class="obs-k">episodic</span> <span class="obs-mono">${dd.episodic}</span></div>`
@@ -986,22 +1000,26 @@
     if (data.trace) {
       const t = data.trace
       const tid = t.templateId ? ` · <span class="obs-k">templateId</span> <span class="obs-mono">${escapeHtml(t.templateId)}</span>` : ''
-      html += `<div class="obs-line"><span class="obs-k">trace</span> staticRetries=${t.staticValidationRetries ?? '?'} · behaviorRounds=${t.behavioralVerificationRetries ?? '?'} · pass2Count=${t.pass2GenerationCount ?? '?'}${tid}</div>`
+      html += `<div class="obs-line"><span class="obs-k">trace</span> staticRetries=${t.staticValidationRetries ?? '?'} · behaviorRounds=${t.behavioralVerificationRetries ?? '?'} · simBuilderCount=${t.simBuilderGenerationCount ?? '?'}${tid}</div>`
       const attempts = Array.isArray(t.attempts) ? t.attempts : []
-      html += `<div class="obs-line"><span class="obs-k">attempts</span> ${attempts.length} steps</div>`
-      html += `<div class="obs-line" style="margin-top:8px;color:#a3a3a3;"><span class="obs-k">Pass 1</span> is the structured design doc (same as <em>design doc</em> textarea + API <code>designDoc</code>) — not a raw string in the trace.</div>`
-      html += `<div class="obs-line" style="color:#a3a3a3;"><span class="obs-k">Pass 2</span> sim code: final string is <em>sim code</em> textarea + API <code>simCode</code>. Each failed/succeeded Pass 2 try is below.</div>`
-      let p2i = 0
+      html += `<div class="obs-line"><span class="obs-k">attempts</span> ${attempts.length} trace rows</div>`
+      if (attempts.length) {
+        const slim = attempts.map((a) => ({ phase: a.phase, attempt: a.attempt, ok: a.ok, hasSimText: Boolean(a.simBuilderModelOutput) }))
+        html += `<details class="obs-trace-wrap"><summary>Attempt timeline (phase / attempt# / ok)</summary><pre class="obs-trace-pre">${escapeHtml(JSON.stringify(slim, null, 2))}</pre></details>`
+      }
+      html += `<div class="obs-line" style="margin-top:8px;color:#a3a3a3;"><span class="obs-k">Curriculum + verification</span> build the <em>design doc</em> (API <code>designDoc</code>).</div>`
+      html += `<div class="obs-line" style="color:#a3a3a3;"><span class="obs-k">Sim builder</span> output is <em>sim code</em> (API <code>simCode</code>). Truncated model text is under each static-validation row.</div>`
+      let simBuild = 0
       for (const a of attempts) {
-        if (a.phase === 'staticValidation' && a.pass2ModelOutput) {
-          p2i++
-          const o = a.pass2ModelOutput
+        if (a.phase === 'simBuilderAgent' && a.simBuilderModelOutput) {
+          simBuild++
+          const o = a.simBuilderModelOutput
           const okb = a.ok ? 'ok' : 'fail'
           const tr = o.truncated ? ' (truncated in trace; see full in textarea if this attempt won)' : ''
-          html += `<details class="obs-trace-wrap" style="margin-top:4px;"><summary>Pass 2 #${p2i} static validation — ${okb} · ${o.charCount} chars${tr}</summary><pre class="obs-trace-pre">${escapeHtml(o.text || '')}</pre></details>`
+          html += `<details class="obs-trace-wrap" style="margin-top:4px;"><summary>simBuilderAgent #${simBuild} (model text) — ${okb} · ${o.charCount} chars${tr}</summary><pre class="obs-trace-pre">${escapeHtml(o.text || '')}</pre></details>`
         }
       }
-      html += `<details class="obs-trace-wrap" style="margin-top:8px;"><summary>Full generation trace (JSON) — includes same Pass 2 text in <code>pass2ModelOutput</code></summary><pre class="obs-trace-pre">${escapeHtml(JSON.stringify(data.trace, null, 2))}</pre></details>`
+      html += `<details class="obs-trace-wrap" style="margin-top:8px;"><summary>Full generation trace (JSON) — sim-builder text in <code>simBuilderModelOutput</code></summary><pre class="obs-trace-pre">${escapeHtml(JSON.stringify(data.trace, null, 2))}</pre></details>`
     }
     el.innerHTML = html
   }
@@ -1046,7 +1064,7 @@
     const requestedTrace = document.getElementById('chk-debug-trace').checked
     const obs = document.getElementById('generation-obs')
     obs.className = 'generation-obs obs-pending'
-    obs.innerHTML = '<div class="obs-line"><span class="obs-k">Pipeline:</span> generating… (Pass 1 → consistency → Pass 2 → verify)</div>'
+    obs.innerHTML = '<div class="obs-line"><span class="obs-k">Pipeline:</span> generating… (curriculum → verification-spec → consistency → sim builder → behavioral verify)</div>'
 
     const btn = document.getElementById('btn-generate')
     btn.disabled = true
@@ -1058,11 +1076,21 @@
     const t0 = performance.now()
     let res
     let data
+    let sessionId = null
+    try {
+      sessionId = localStorage.getItem('praxioSessionId')
+      if (!sessionId) {
+        sessionId = crypto.randomUUID()
+        localStorage.setItem('praxioSessionId', sessionId)
+      }
+    } catch {
+      sessionId = 'test-harness'
+    }
     try {
       res = await fetch('/api/generate', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ concept }),
+        body: JSON.stringify({ concept, sessionId }),
       })
       data = await res.json()
     } catch (err) {

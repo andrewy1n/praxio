@@ -41,11 +41,11 @@ If you resolve something listed as open in `GAPS.md`, mark it resolved with a da
 
 ## AI Models
 
-Two models, two jobs. Do not swap them.
+Two models, two jobs. Keep role boundaries explicit.
 
 | Model | Route | Use |
 |-------|-------|-----|
-| `gemma-4-31b-it` | `/api/generate` | Pass 1 (concept → design doc) and Pass 2 (design doc → sim code) |
+| `gemma-4-31b-it` | `/api/generate` | Demo/default sim generation pipeline: curriculum agent + verification-spec agent + sim-builder agent |
 | `gemini-2.5-flash` | `/api/tutor` | Socratic tutor — both calls of the two-call pattern |
 
 ```typescript
@@ -54,6 +54,11 @@ import { google } from '@ai-sdk/google'
 const genModel   = google('gemma-4-31b-it')
 const tutorModel = google('gemini-2.5-flash')
 ```
+
+### Current Testing Override
+
+For local testing, `/api/generate` may be temporarily run with `gemini-2.5-flash`.
+For the demo, sim generation must use `gemma-4-31b-it`.
 
 ### Two-Call Tutor Pattern (required, not optional)
 
