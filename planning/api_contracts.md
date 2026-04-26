@@ -165,6 +165,30 @@ type UpdateWorkspaceResponse = {
 }
 ```
 
+### `DELETE /api/workspaces/:workspaceId`
+
+Deletes one workspace (and its branch/checkpoint records) for the current anonymous session.
+
+**Request**
+```typescript
+type DeleteWorkspaceQuery = {
+  sessionId: string
+}
+```
+
+**Response**
+```typescript
+type DeleteWorkspaceResponse = {
+  ok: true
+}
+```
+
+**Behavior**
+
+- Rejects when `sessionId` is missing (`400`).
+- Rejects cross-session deletes (`404`).
+- Deletes workspace metadata and associated branch/checkpoint documents.
+
 **Curriculum + verification-spec output schema (Zod)**
 ```typescript
 import { z } from 'zod'

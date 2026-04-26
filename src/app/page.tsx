@@ -262,6 +262,7 @@ export default function LandingPage() {
   const [recentState, setRecentState] = useState<RecentWorkspacesState>('idle')
   const [recentItems, setRecentItems] = useState<WorkspaceListItem[]>([])
   const [recentError, setRecentError] = useState<string | null>(null)
+  const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -666,6 +667,34 @@ export default function LandingPage() {
     void refreshRecentWorkspaces()
   }
 
+  const handleDeleteWorkspace = useCallback(async (workspaceId: string, conceptLabel: string) => {
+    if (deletingWorkspaceId) return
+    const confirmDelete = window.confirm(`Delete workspace "${conceptLabel}"? This cannot be undone.`)
+    if (!confirmDelete) return
+
+    const sessionId = getSessionId()
+    if (!sessionId) return
+
+    setDeletingWorkspaceId(workspaceId)
+    setRecentError(null)
+    try {
+      const res = await fetch(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}?sessionId=${encodeURIComponent(sessionId)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(body || `Delete failed (${res.status})`)
+      }
+      setRecentItems(prev => prev.filter(item => item.workspaceId !== workspaceId))
+      setRecentState('ready')
+    } catch (err) {
+      setRecentError(err instanceof Error ? err.message : 'Failed to delete workspace')
+    } finally {
+      setDeletingWorkspaceId(null)
+    }
+  }, [deletingWorkspaceId])
+
   if (loading) {
     return (
       <GenerationLoadingScreen
@@ -821,6 +850,7 @@ export default function LandingPage() {
                             <button
                               type="button"
                               onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}`)}
+                              disabled={deletingWorkspaceId === item.workspaceId}
                               className="rounded-[var(--r)] border border-[color:var(--border)] bg-white px-2.5 py-1.5 text-[11px] font-medium text-[color:var(--ink2)] hover:border-[color:var(--border-strong)]"
                             >
                               Resume
@@ -829,11 +859,20 @@ export default function LandingPage() {
                               <button
                                 type="button"
                                 onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}?replay=1`)}
+                                disabled={deletingWorkspaceId === item.workspaceId}
                                 className="rounded-[var(--r)] border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[color:var(--ink2)] hover:border-[color:var(--border-strong)]"
                               >
                                 Replay last step
                               </button>
                             ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteWorkspace(item.workspaceId, item.concept)}
+                              disabled={deletingWorkspaceId === item.workspaceId}
+                              className="rounded-[var(--r)] border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 hover:border-red-300 disabled:opacity-50"
+                            >
+                              {deletingWorkspaceId === item.workspaceId ? 'Deleting…' : 'Delete'}
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -868,6 +907,7 @@ export default function LandingPage() {
                             <button
                               type="button"
                               onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}`)}
+                              disabled={deletingWorkspaceId === item.workspaceId}
                               className="rounded-[var(--r)] border border-[color:var(--border)] bg-white px-2.5 py-1.5 text-[11px] font-medium text-[color:var(--ink2)] hover:border-[color:var(--border-strong)]"
                             >
                               Resume
@@ -876,11 +916,20 @@ export default function LandingPage() {
                               <button
                                 type="button"
                                 onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}?replay=1`)}
+                                disabled={deletingWorkspaceId === item.workspaceId}
                                 className="rounded-[var(--r)] border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[color:var(--ink2)] hover:border-[color:var(--border-strong)]"
                               >
                                 Replay last step
                               </button>
                             ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteWorkspace(item.workspaceId, item.concept)}
+                              disabled={deletingWorkspaceId === item.workspaceId}
+                              className="rounded-[var(--r)] border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 hover:border-red-300 disabled:opacity-50"
+                            >
+                              {deletingWorkspaceId === item.workspaceId ? 'Deleting…' : 'Delete'}
+                            </button>
                           </div>
                         </div>
                       ))}

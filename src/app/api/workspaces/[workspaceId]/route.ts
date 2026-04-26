@@ -1,6 +1,7 @@
 import {
   assertWorkspaceSession,
   buildDefaultTransferQuestion,
+  deleteWorkspaceForSession,
   getMainBranchForWorkspace,
   markWorkspaceCompleted,
   patchWorkspaceMetadata,
@@ -120,6 +121,27 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
     const msg = e instanceof Error ? e.message : 'Patch failed'
     console.error('[api/workspaces/[id] PATCH]', e)
+    return Response.json({ error: msg }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: NextRequest, { params }: RouteParams) {
+  const { workspaceId } = await params
+  const sessionId = req.nextUrl.searchParams.get('sessionId')?.trim() ?? ''
+  if (!sessionId) {
+    return Response.json({ error: 'sessionId is required' }, { status: 400 })
+  }
+
+  try {
+    await deleteWorkspaceForSession(workspaceId, sessionId)
+    return Response.json({ ok: true as const })
+  } catch (e) {
+    const status = (e as Error & { status?: number }).status ?? 500
+    if (status === 404) {
+      return Response.json({ error: 'Workspace not found or access denied' }, { status: 404 })
+    }
+    const msg = e instanceof Error ? e.message : 'Delete failed'
+    console.error('[api/workspaces/[id] DELETE]', e)
     return Response.json({ error: msg }, { status: 500 })
   }
 }
