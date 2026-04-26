@@ -999,17 +999,21 @@ type Manifest = {
 
 ## ElevenLabs API
 
-### STT — Scribe (client-side)
+Both STT and TTS are proxied through Next.js API routes so the ElevenLabs key is never sent to the browser. Clients talk to `/api/stt` and `/api/tts`; the routes read `ELEVENLABS_API_KEY` (falling back to `NEXT_PUBLIC_ELEVENLABS_KEY` for local dev) and forward to ElevenLabs.
+
+### STT — Scribe via `POST /api/stt`
+
+Client captures audio with `MediaRecorder`, then POSTs the resulting blob as multipart `file`:
 
 ```typescript
-// Called after MediaRecorder produces an audio blob
-const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-  method: 'POST',
-  headers: { 'xi-api-key': process.env.NEXT_PUBLIC_ELEVENLABS_KEY! },
-  body: formData,   // multipart: { audio: Blob, model_id: 'scribe_v1' }
-})
-const { text } = await response.json()
+// Browser side
+const form = new FormData()
+form.append('file', audioBlob, 'speech.webm')
+const res = await fetch('/api/stt', { method: 'POST', body: form })
+const { text } = await res.json() as { text: string }
 ```
+
+The server route (`src/app/api/stt/route.ts`) forwards to ElevenLabs Scribe with `model_id: 'scribe_v1'` and returns `{ text, languageCode, languageProbability }`. The ElevenLabs field is `file` (not `audio`); ElevenLabs auto-detects the codec (`audio/webm`, `audio/mp4`, `audio/ogg`) from the uploaded blob.
 
 ### TTS — Streaming (client-side)
 

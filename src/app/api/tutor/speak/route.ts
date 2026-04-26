@@ -44,7 +44,11 @@ export async function POST(req: Request) {
     messages: messagesWithEvents,
   })
 
-  const skipDb = !workspaceId || workspaceId === 'dev' || !process.env.MONGODB_URI
+  const skipDb =
+    !workspaceId
+    || workspaceId === 'dev'
+    || workspaceId === 'demo'
+    || !process.env.MONGODB_URI
 
   if (!skipDb) {
     void (async () => {

@@ -75,6 +75,7 @@ export default function WorkspaceTutorStrip({
   const lastUserIdx = lastUserMsg ? messages.lastIndexOf(lastUserMsg) : -1
   const lastTutorIdx = lastTutorMsg ? messages.lastIndexOf(lastTutorMsg) : -1
   const userSentAwaitingTutor = lastUserIdx > lastTutorIdx
+  const isBusy = tutorState !== 'idle'
 
   const sentStatusText =
     tutorState === 'processing'
@@ -105,10 +106,16 @@ export default function WorkspaceTutorStrip({
   const handleSend = () => {
     const next = inputVal.trim()
     if (!next) return
+    if (isBusy) return
     onSend(next)
     setInputVal('')
   }
   const hasDraft = inputVal.trim().length > 0
+  const isListening = tutorState === 'listening'
+  // Mic is clickable when idle (to start) OR when listening (to stop).
+  // Disabled during processing / tutor speaking so we don't interrupt an
+  // in-flight tutor turn.
+  const canMic = Boolean(onMic) && !hasDraft && (tutorState === 'idle' || isListening)
 
   return (
     <footer className="z-[100] flex h-[var(--tutor-strip-h)] shrink-0 items-stretch border-t border-[color:var(--border)] bg-[color:var(--bg)] font-[family-name:var(--font-dm-sans)]">
@@ -169,19 +176,46 @@ export default function WorkspaceTutorStrip({
           onChange={e => setInputVal(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSend()}
           placeholder="type reply…"
+          disabled={isBusy}
           className="h-[34px] min-w-0 flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 text-xs text-[color:var(--ink)] outline-none transition-colors placeholder:text-[color:var(--ink3)] focus:border-[color:var(--accent-border)] focus:bg-[color:var(--bg)]"
         />
         <button
           type="button"
-          title={hasDraft ? 'Send' : 'Speak (STT)'}
-          aria-label={hasDraft ? 'Send message' : 'Speak (STT)'}
-          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded border-0 bg-[color:var(--ink)] text-white transition-colors hover:opacity-90"
+          title={
+            hasDraft
+              ? isBusy
+                ? 'Tutor is busy…'
+                : 'Send'
+              : isListening
+                ? 'Stop & transcribe'
+                : isBusy
+                  ? 'Tutor is busy…'
+                  : onMic
+                    ? 'Speak (STT)'
+                    : 'Speak (STT) unavailable'
+          }
+          aria-label={
+            hasDraft
+              ? 'Send message'
+              : isListening
+                ? 'Stop recording and transcribe'
+                : 'Speak (STT)'
+          }
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded border-0 text-white transition-colors hover:opacity-90 disabled:opacity-50"
+          style={{
+            background: isListening ? 'oklch(55% 0.15 30)' : 'var(--ink)',
+          }}
+          disabled={hasDraft ? isBusy : !canMic}
           onClick={hasDraft ? handleSend : onMic}
         >
           {hasDraft ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <path d="M12 19V5" strokeLinecap="round" />
               <path d="M6 11l6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : isListening ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <rect x="5" y="5" width="14" height="14" rx="2" />
             </svg>
           ) : (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>

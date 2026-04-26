@@ -370,19 +370,33 @@ export default function SimContainer({
         </div>
       )}
       {interaction?.kind === 'numeric_hypothesis' && (
-        <div className="absolute top-14 right-4 w-64 bg-zinc-950/90 backdrop-blur border border-zinc-700 rounded-lg p-3 z-20 flex flex-col gap-2">
-          <span className="text-[10px] uppercase tracking-widest text-zinc-500">numeric hypothesis</span>
-          <span className="text-xs text-zinc-300">
-            {interaction.metric}{interaction.unit ? ` (${interaction.unit})` : ''}
+        <div
+          className="absolute right-4 top-14 z-20 flex w-64 flex-col gap-2 overflow-hidden rounded-[var(--r)] border bg-[rgba(255,255,255,0.97)] p-3 shadow-[var(--shadow-lg)]"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <span
+            className="font-[family-name:var(--font-dm-mono)] text-[10px] font-semibold uppercase tracking-[0.08em]"
+            style={{ color: 'var(--ink3)' }}
+          >
+            Numeric hypothesis
+          </span>
+          <span className="text-[12px]" style={{ color: 'var(--ink2)' }}>
+            {interaction.metric}
+            {interaction.unit ? ` (${interaction.unit})` : ''}
           </span>
           <input
             type="number"
             value={hypothesisValue}
             onChange={event => setHypothesisValue(event.target.value)}
-            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm"
+            className="rounded-[var(--r-sm)] border bg-[var(--surface)] px-2 py-1.5 text-[12px] outline-none placeholder:text-[color:var(--ink3)] focus:border-[color:var(--accent)]"
+            style={{ borderColor: 'var(--border)', color: 'var(--ink)' }}
             placeholder="Enter estimate"
           />
-          <button onClick={submitHypothesis} className="bg-orange-400 text-zinc-950 rounded px-2 py-1 text-xs">
+          <button
+            onClick={submitHypothesis}
+            className="rounded-[var(--r-sm)] px-2 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-[color:var(--accent-mid)]"
+            style={{ background: 'var(--accent)' }}
+          >
             Submit hypothesis
           </button>
         </div>
@@ -391,7 +405,8 @@ export default function SimContainer({
         <button
           onClick={submitPredictionSketch}
           disabled={predictionPoints.length < 2}
-          className="absolute top-14 right-4 bg-cyan-300 disabled:opacity-40 text-zinc-950 rounded px-3 py-2 text-xs z-20"
+          className="absolute bottom-6 right-4 z-20 flex cursor-pointer items-center gap-2 rounded px-[18px] py-2 text-[13px] font-medium tracking-tight text-zinc-950 shadow-[var(--shadow-sm)] transition-[opacity,transform] disabled:cursor-not-allowed disabled:opacity-40 hover:opacity-90 active:scale-[0.97]"
+          style={{ background: '#67e8f9' }}
         >
           Submit prediction sketch
         </button>

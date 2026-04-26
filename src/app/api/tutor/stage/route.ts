@@ -33,7 +33,11 @@ export async function POST(req: Request) {
     workspaceId,
   }: StageRequest = await req.json()
 
-  const skipDb = !workspaceId || workspaceId === 'dev' || !process.env.MONGODB_URI
+  const skipDb =
+    !workspaceId
+    || workspaceId === 'dev'
+    || workspaceId === 'demo'
+    || !process.env.MONGODB_URI
 
   if (!skipDb) {
     await assertWorkspaceSession(workspaceId!, sessionId)
@@ -67,6 +71,8 @@ export async function POST(req: Request) {
   })
 
   return Response.json({
-    toolCalls: result.toolCalls.map(tc => ({ toolName: tc.toolName, input: tc.input })),
+    toolCalls: result.toolCalls
+      .filter((tc): tc is NonNullable<(typeof result.toolCalls)[number]> => Boolean(tc))
+      .map(tc => ({ toolName: tc.toolName, input: tc.input })),
   })
 }

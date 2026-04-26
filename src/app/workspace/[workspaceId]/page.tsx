@@ -19,6 +19,31 @@ import type {
   GenerateResponse,
 } from '@/lib/types'
 
+// Preferred MediaRecorder mime types, in order. Browsers fall through to the
+// first one they actually support (Safari needs mp4/aac, Chrome/Firefox prefer
+// webm/opus). ElevenLabs Scribe auto-detects codec from the file payload.
+const MIC_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/ogg',
+]
+
+function pickSupportedMimeType(): string | undefined {
+  if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
+    return undefined
+  }
+  for (const type of MIC_MIME_CANDIDATES) {
+    try {
+      if (window.MediaRecorder.isTypeSupported?.(type)) return type
+    } catch {
+      /* ignore */
+    }
+  }
+  return undefined
+}
+
 function toolCallToAgentCmd(toolCall: { toolName: string; input: Record<string, unknown> }): AgentCmd | null {
   switch (toolCall.toolName) {
     case 'lock':
@@ -100,11 +125,16 @@ export default function WorkspacePage() {
   const [sessionId] = useState(() => typeof window === 'undefined' ? 'demo' : getSessionId())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const tutorTurnInFlightRef = useRef(false)
-  const speechRecRef = useRef<any>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const micCancelledRef = useRef(false)
   // Mirror activeStepId into a ref so runTutorTurn can detect mid-turn
   // dropdown switches (closure captures a stale activeStepId).
   const activeStepIdRef = useRef<string | null>(null)
-  activeStepIdRef.current = activeStepId
+  useEffect(() => {
+    activeStepIdRef.current = activeStepId
+  }, [activeStepId])
 
   // Mark a specific step complete and move to the next one, guarded against the
   // student having manually switched steps via the dropdown mid-turn. This is
@@ -179,8 +209,18 @@ export default function WorkspacePage() {
      */
     submittedStepId?: string | null
   }) => {
-    if (!manifest || !designDoc) return
-    if (tutorTurnInFlightRef.current) return
+    if (!designDoc) {
+      console.warn('[tutor] designDoc not ready yet')
+      return
+    }
+    if (!manifest) {
+      console.warn('[tutor] manifest not ready yet (iframe has not sent MANIFEST)')
+      return
+    }
+    if (tutorTurnInFlightRef.current) {
+      console.warn('[tutor] turn already in flight; ignoring new request')
+      return
+    }
     tutorTurnInFlightRef.current = true
 
     try {
@@ -441,6 +481,10 @@ export default function WorkspacePage() {
   }, [activeStepId, messages, runTutorTurn])
 
   const handleSend = async (text: string) => {
+    if (tutorTurnInFlightRef.current || tutorState !== 'idle') {
+      console.warn('[tutor] busy; ignoring send')
+      return
+    }
     const next: TutorMessage[] = [...messages, { role: 'user', content: text }]
     setMessages(next)
     const events = pendingEvents
@@ -455,63 +499,165 @@ export default function WorkspacePage() {
     })
   }
 
-  const handleMic = useCallback(() => {
-    if (tutorTurnInFlightRef.current) return
-    if (typeof window === 'undefined') return
-    if (tutorState !== 'idle') return
+  const releaseMicStream = useCallback(() => {
+    const stream = mediaStreamRef.current
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        try { track.stop() } catch {}
+      })
+    }
+    mediaStreamRef.current = null
+    mediaRecorderRef.current = null
+    audioChunksRef.current = []
+  }, [])
 
-    const SpeechRecognitionCtor =
-      (window as any).SpeechRecognition
-      || (window as any).webkitSpeechRecognition
-
-    if (!SpeechRecognitionCtor) {
-      console.warn('[stt] SpeechRecognition not supported in this browser')
+  const transcribeAndSend = useCallback(async (blob: Blob) => {
+    if (blob.size === 0) {
+      console.warn('[stt] empty audio blob; skipping transcription')
+      setTutorState('idle')
       return
     }
 
+    setTutorState('processing')
+
     try {
-      if (speechRecRef.current) {
-        try { speechRecRef.current.abort?.() } catch {}
-        try { speechRecRef.current.stop?.() } catch {}
-      }
+      const form = new FormData()
+      const filename = blob.type.includes('mp4')
+        ? 'speech.mp4'
+        : blob.type.includes('ogg')
+          ? 'speech.ogg'
+          : 'speech.webm'
+      form.append('file', blob, filename)
 
-      const rec = new SpeechRecognitionCtor()
-      speechRecRef.current = rec
-      rec.continuous = false
-      rec.interimResults = false
-      rec.lang = 'en-US'
-
-      rec.onstart = () => {
-        stopTutorAudio()
-        setTutorState('listening')
-      }
-
-      rec.onerror = (e: any) => {
-        console.warn('[stt] error', e)
+      const res = await fetch('/api/stt', { method: 'POST', body: form })
+      if (!res.ok) {
+        const debug = await res.text().catch(() => '')
+        console.warn('[stt] /api/stt failed', { status: res.status, debug })
         setTutorState('idle')
+        return
       }
 
-      rec.onend = () => {
-        // If we didn't transition into processing, return to idle.
-        setTutorState(prev => (prev === 'listening' ? 'idle' : prev))
-      }
-
-      rec.onresult = (event: any) => {
-        const transcript = String(event?.results?.[0]?.[0]?.transcript ?? '').trim()
-        if (!transcript) {
-          setTutorState('idle')
-          return
-        }
+      const data = await res.json() as { text?: string; rawText?: string; languageCode?: string | null }
+      const transcript = typeof data.text === 'string' ? data.text.trim() : ''
+      if (!transcript) {
+        console.warn('[stt] empty transcript from ElevenLabs', {
+          rawText: data.rawText ?? null,
+          languageCode: data.languageCode ?? null,
+        })
         setTutorState('idle')
-        void handleSend(transcript)
+        return
       }
 
-      rec.start()
+      // handleSend moves us from 'processing' through the tutor turn itself; we
+      // do NOT revert to idle here, runTutorTurn owns that transition.
+      await handleSend(transcript)
     } catch (err) {
-      console.warn('[stt] failed to start', err)
+      console.warn('[stt] transcription error', err)
       setTutorState('idle')
     }
-  }, [handleSend, stopTutorAudio, tutorState])
+  }, [handleSend])
+
+  const startMicCapture = useCallback(async () => {
+    if (typeof window === 'undefined') return
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      console.warn('[stt] getUserMedia not supported in this browser')
+      return
+    }
+    if (typeof window.MediaRecorder === 'undefined') {
+      console.warn('[stt] MediaRecorder not supported in this browser')
+      return
+    }
+
+    stopTutorAudio()
+
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (err) {
+      console.warn('[stt] microphone permission denied or unavailable', err)
+      return
+    }
+
+    const mimeType = pickSupportedMimeType()
+    let recorder: MediaRecorder
+    try {
+      recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
+    } catch (err) {
+      console.warn('[stt] failed to construct MediaRecorder', err)
+      stream.getTracks().forEach(t => { try { t.stop() } catch {} })
+      return
+    }
+
+    mediaStreamRef.current = stream
+    mediaRecorderRef.current = recorder
+    audioChunksRef.current = []
+    micCancelledRef.current = false
+
+    recorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data && event.data.size > 0) {
+        audioChunksRef.current.push(event.data)
+      }
+    }
+
+    recorder.onerror = (event: Event) => {
+      console.warn('[stt] MediaRecorder error', event)
+    }
+
+    recorder.onstop = () => {
+      const chunks = audioChunksRef.current
+      const type = recorder.mimeType || mimeType || 'audio/webm'
+      const cancelled = micCancelledRef.current
+      releaseMicStream()
+
+      if (cancelled) {
+        setTutorState('idle')
+        return
+      }
+
+      const blob = new Blob(chunks, { type })
+      void transcribeAndSend(blob)
+    }
+
+    try {
+      recorder.start()
+      setTutorState('listening')
+    } catch (err) {
+      console.warn('[stt] failed to start MediaRecorder', err)
+      releaseMicStream()
+      setTutorState('idle')
+    }
+  }, [releaseMicStream, stopTutorAudio, transcribeAndSend])
+
+  const stopMicCapture = useCallback((opts?: { cancel?: boolean }) => {
+    const recorder = mediaRecorderRef.current
+    if (!recorder) return
+    micCancelledRef.current = Boolean(opts?.cancel)
+    if (recorder.state !== 'inactive') {
+      try { recorder.stop() } catch (err) { console.warn('[stt] recorder.stop failed', err) }
+    } else {
+      releaseMicStream()
+    }
+  }, [releaseMicStream])
+
+  const handleMic = useCallback(() => {
+    if (tutorTurnInFlightRef.current) return
+
+    if (tutorState === 'listening') {
+      stopMicCapture()
+      return
+    }
+
+    if (tutorState !== 'idle') return
+    void startMicCapture()
+  }, [startMicCapture, stopMicCapture, tutorState])
+
+  useEffect(() => {
+    return () => {
+      stopMicCapture({ cancel: true })
+    }
+  }, [stopMicCapture])
 
   // Match SocraticPlanPanel: fall back to first step so the sim never has null while the list has steps.
   const socraticPlan = designDoc?.socratic_plan ?? []
@@ -571,7 +717,7 @@ export default function WorkspacePage() {
           </div>
         ) : null}
 
-        {manifest ? (
+        {manifest && activeStep?.interaction?.kind !== 'prediction_sketch' ? (
           <SimControlsOverlay
             manifest={manifest}
             phase={simPhase}
