@@ -78,7 +78,7 @@ runtime.onRender(function (ctx) {
   }
 
   ctx.clearRect(0, 0, W, H)
-  ctx.fillStyle = '#0a0a0a'
+  ctx.fillStyle = '#f9fafb'
   ctx.fillRect(0, 0, W, H)
 
   // K line
@@ -92,24 +92,24 @@ runtime.onRender(function (ctx) {
 
   // K/2 line
   const halfKY = PT + ph - (K / 2 / maxY) * ph
-  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1; ctx.setLineDash([3, 6]); ctx.globalAlpha = 0.45
+  ctx.strokeStyle = '#d97706'; ctx.lineWidth = 1; ctx.setLineDash([3, 6]); ctx.globalAlpha = 0.55
   ctx.beginPath(); ctx.moveTo(PL, halfKY); ctx.lineTo(W - PR, halfKY); ctx.stroke()
   ctx.setLineDash([]); ctx.globalAlpha = 1
-  ctx.fillStyle = '#f59e0b'; ctx.font = '10px monospace'
+  ctx.fillStyle = '#d97706'; ctx.font = '10px monospace'
   ctx.fillText('K/2', PL + 4, halfKY - 3)
 
   // Axes
-  ctx.strokeStyle = '#444'; ctx.lineWidth = 1.5
+  ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1.5
   ctx.beginPath()
   ctx.moveTo(PL, PT); ctx.lineTo(PL, PT + ph); ctx.lineTo(PL + pw, PT + ph)
   ctx.stroke()
 
   // Y ticks
-  ctx.fillStyle = '#666'; ctx.font = '10px monospace'; ctx.textAlign = 'right'
+  ctx.fillStyle = '#6b7280'; ctx.font = '10px monospace'; ctx.textAlign = 'right'
   for (let t = 0; t <= maxY; t += K / 4) {
     const ty = PT + ph - (t / maxY) * ph
     ctx.beginPath(); ctx.moveTo(PL - 4, ty); ctx.lineTo(PL, ty)
-    ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.stroke()
+    ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1; ctx.stroke()
     ctx.fillText(Math.round(t), PL - 7, ty + 4)
   }
 
@@ -118,19 +118,19 @@ runtime.onRender(function (ctx) {
   for (let g = 0; g <= MAX_GEN; g += 5) {
     const tx = PL + (g / MAX_GEN) * pw
     ctx.beginPath(); ctx.moveTo(tx, PT + ph); ctx.lineTo(tx, PT + ph + 4)
-    ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.stroke()
+    ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1; ctx.stroke()
     ctx.fillText(g, tx, PT + ph + 14)
   }
 
   // Axis labels
-  ctx.fillStyle = '#888'; ctx.font = '11px monospace'; ctx.textAlign = 'center'
+  ctx.fillStyle = '#6b7280'; ctx.font = '11px monospace'; ctx.textAlign = 'center'
   ctx.fillText('Generation', PL + pw / 2, H - 8)
   ctx.save(); ctx.translate(14, PT + ph / 2); ctx.rotate(-Math.PI / 2)
   ctx.fillText('Population', 0, 0); ctx.restore()
 
   // Ghost full curve
   if (pops.length > 1) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1.5
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1.5
     ctx.beginPath()
     pops.forEach((p, i) => { const pt = px(i, p); i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y) })
     ctx.stroke()
@@ -138,7 +138,7 @@ runtime.onRender(function (ctx) {
 
   // Drawn curve
   if (gen > 0) {
-    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2.5
+    ctx.strokeStyle = '#0891b2'; ctx.lineWidth = 2.5
     ctx.beginPath()
     for (let i = 0; i <= gen && i < pops.length; i++) {
       const pt = px(i, pops[i]); i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y)
@@ -149,9 +149,9 @@ runtime.onRender(function (ctx) {
   // Current dot
   const curPop = pops[gen] || 0
   const dot = px(gen, curPop)
-  ctx.fillStyle = '#60a5fa'
+  ctx.fillStyle = '#2563eb'
   ctx.beginPath(); ctx.arc(dot.x, dot.y, 6, 0, Math.PI * 2); ctx.fill()
-  ctx.fillStyle = '#d4d4d4'; ctx.font = '11px monospace'; ctx.textAlign = 'left'
+  ctx.fillStyle = '#374151'; ctx.font = '11px monospace'; ctx.textAlign = 'left'
   ctx.fillText('Gen ' + gen + ': ' + Math.round(curPop), dot.x + 10, dot.y - 5)
 
   // Update region positions

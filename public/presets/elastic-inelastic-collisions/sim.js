@@ -129,14 +129,14 @@ runtime.onRender(function(ctx) {
   const x2 = b2.position.x, y2 = b2.position.y
 
   // Background
-  ctx2d.fillStyle = '#0a0a0a'
+  ctx2d.fillStyle = '#f9fafb'
   ctx2d.fillRect(0, 0, W, H)
 
   // Track rail and end stops
   const railY = tY + Math.max(r1, BASE_R) + 10
-  ctx2d.strokeStyle = '#1e1e1e'; ctx2d.lineWidth = 2
+  ctx2d.strokeStyle = '#d1d5db'; ctx2d.lineWidth = 2
   ctx2d.beginPath(); ctx2d.moveTo(48, railY); ctx2d.lineTo(W - 48, railY); ctx2d.stroke()
-  ctx2d.strokeStyle = '#2a2a2a'; ctx2d.lineWidth = 6
+  ctx2d.strokeStyle = '#9ca3af'; ctx2d.lineWidth = 6
   ctx2d.beginPath(); ctx2d.moveTo(48, tY - r1 - 14); ctx2d.lineTo(48, railY); ctx2d.stroke()
   ctx2d.beginPath(); ctx2d.moveTo(W - 48, tY - BASE_R - 14); ctx2d.lineTo(W - 48, railY); ctx2d.stroke()
 
@@ -195,37 +195,39 @@ runtime.onRender(function(ctx) {
 
   // Param summary — top-right
   ctx2d.font = '11px monospace'; ctx2d.textAlign = 'right'
-  ctx2d.fillStyle = '#444'
+  ctx2d.fillStyle = '#9ca3af'
   ctx2d.fillText(`e = ${e.toFixed(2)}   m₁/m₂ = ${mr.toFixed(2)}`, W - 20, 16)
 
   // Post-collision results panel
   if (collisionFired) {
     const pw = 280, ph = 98
     const px = W / 2 - pw / 2, py = railY + 16
-    ctx2d.fillStyle = 'rgba(0,0,0,0.78)'
+    ctx2d.fillStyle = 'rgba(255,255,255,0.95)'
     ctx2d.beginPath()
     ctx2d.roundRect(px, py, pw, ph, 6)
     ctx2d.fill()
+    ctx2d.strokeStyle = '#e5e7eb'; ctx2d.lineWidth = 1
+    ctx2d.beginPath(); ctx2d.roundRect(px, py, pw, ph, 6); ctx2d.stroke()
 
-    const keColor = keF > 0.94 ? '#4ade80' : keF > 0.6 ? '#fbbf24' : '#f87171'
+    const keColor = keF > 0.94 ? '#16a34a' : keF > 0.6 ? '#d97706' : '#dc2626'
     const rows = [
       ['KE conserved:',       (keF * 100).toFixed(1) + '%',                   keColor ],
-      ['Momentum conserved:', '~100%',                                         '#4ade80'],
-      ['v₁ after:',           (v1a >= 0 ? '+' : '') + v1a.toFixed(2) + ' v₀', '#60a5fa'],
-      ['v₂ after:',           '+' + v2a.toFixed(2) + ' v₀',                   '#f97316'],
+      ['Momentum conserved:', '~100%',                                         '#16a34a'],
+      ['v₁ after:',           (v1a >= 0 ? '+' : '') + v1a.toFixed(2) + ' v₀', '#2563eb'],
+      ['v₂ after:',           '+' + v2a.toFixed(2) + ' v₀',                   '#ea580c'],
     ]
     ctx2d.font = '11px monospace'; ctx2d.textBaseline = 'alphabetic'
     rows.forEach(function([label, value, color], i) {
       const ry = py + 22 + i * 20
-      ctx2d.textAlign = 'left';  ctx2d.fillStyle = '#777'; ctx2d.fillText(label, px + 16, ry)
-      ctx2d.textAlign = 'right'; ctx2d.fillStyle = color;  ctx2d.fillText(value, px + pw - 16, ry)
+      ctx2d.textAlign = 'left';  ctx2d.fillStyle = '#6b7280'; ctx2d.fillText(label, px + 16, ry)
+      ctx2d.textAlign = 'right'; ctx2d.fillStyle = color;     ctx2d.fillText(value, px + pw - 16, ry)
     })
   }
 
   // Pre-launch prompt
   if (!active && !collisionFired) {
     ctx2d.font = '12px monospace'; ctx2d.textAlign = 'center'; ctx2d.textBaseline = 'top'
-    ctx2d.fillStyle = '#3a3a3a'
+    ctx2d.fillStyle = '#9ca3af'
     ctx2d.fillText('Press Launch →', W / 2, railY + 16)
   }
 

@@ -1,0 +1,101 @@
+{
+  "concept": "unit circle and trigonometric functions",
+  "domain": "math",
+  "renderer": "canvas2d",
+  "episodic": false,
+  "params": [
+    {
+      "name": "angle",
+      "range": [0, 360],
+      "default": 30,
+      "label": "Angle (degrees)",
+      "unit": "°"
+    }
+  ],
+  "governing_equations": [
+    "\\cos(\\theta) = x \\text{ (horizontal component of unit radius)}",
+    "\\sin(\\theta) = y \\text{ (vertical component of unit radius)}",
+    "x^2 + y^2 = 1 \\text{ (Pythagorean identity)}"
+  ],
+  "emit_events": ["entered_second_quadrant", "sine_equals_cosine"],
+  "register_regions": ["point_on_circle", "sin_arm", "cos_arm"],
+  "initial_staging": {
+    "locked": ["angle"],
+    "highlighted": ["angle"]
+  },
+  "socratic_plan": [
+    {
+      "id": "predict_signs",
+      "question": "The point is in the first quadrant right now. What do you predict will happen to the cosine value as the angle grows past 90°? Will it stay positive, become zero, or go negative?",
+      "learning_goal": "Student connects the horizontal position on the circle to the sign of cosine",
+      "exit_condition": "Student makes a prediction about the sign change of cosine",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "highlight": ["cos_arm"], "lock": ["angle"] }
+    },
+    {
+      "id": "observe_quadrant_two",
+      "question": "Drag the angle past 90°. What happens to cosine as the point crosses into the second quadrant? What about sine — did it do the same thing?",
+      "learning_goal": "Student observes that cosine changes sign at 90° while sine remains positive",
+      "exit_condition": "Student distinguishes the sign behavior of sin vs cos in Q2",
+      "interaction": { "kind": "verbal_response" },
+      "staging": { "unlock": ["angle"], "highlight": ["sin_arm", "cos_arm"] }
+    },
+    {
+      "id": "find_equal_point",
+      "question": "Drag the angle to where you think sine and cosine are exactly equal, then click that point on the circle.",
+      "learning_goal": "Student identifies the 45° special angle as the geometric point where sin = cos",
+      "exit_condition": "Student clicks near the 45° region",
+      "interaction": { "kind": "click_to_query", "regions": ["point_on_circle"] },
+      "staging": { "highlight": ["point_on_circle"] }
+    },
+    {
+      "id": "pythagorean_identity",
+      "question": "You know cos is the horizontal length and sin is the vertical length. Those two arms form a right triangle with the radius. What does the Pythagorean theorem tell you about sin² + cos²?",
+      "learning_goal": "Student derives the Pythagorean identity sin²θ + cos²θ = 1 from the geometry",
+      "exit_condition": "Student states that sin² + cos² = 1 or recognises the hypotenuse is always 1",
+      "interaction": { "kind": "verbal_response" },
+      "staging": {
+        "highlight": ["sin_arm", "cos_arm", "point_on_circle"],
+        "annotate": [
+          { "region": "sin_arm", "text": "sin θ" },
+          { "region": "cos_arm", "text": "cos θ" },
+          { "region": "point_on_circle", "text": "radius = 1" }
+        ]
+      }
+    }
+  ],
+  "verification": {
+    "summary": "At 0°, cos = 1 and sin = 0. At 90°, cos = 0 and sin = 1. At 45°, sin ≈ cos ≈ 0.707.",
+    "probes": [
+      {
+        "id": "angle_0",
+        "description": "Origin angle — cos should be 1, sin should be 0",
+        "params": { "angle": 0 },
+        "expected_metrics": ["sin", "cos"]
+      },
+      {
+        "id": "angle_90",
+        "description": "Quarter turn — cos should be 0, sin should be 1",
+        "params": { "angle": 90 },
+        "expected_metrics": ["sin", "cos"]
+      },
+      {
+        "id": "angle_45",
+        "description": "45 degrees — sin and cos should be equal",
+        "params": { "angle": 45 },
+        "expected_metrics": ["sin", "cos"]
+      }
+    ],
+    "invariants": [
+      {
+        "kind": "approximately_equal",
+        "id": "pythagorean_identity_at_45",
+        "description": "sin²(45) + cos²(45) should equal 1",
+        "left_probe": "angle_45",
+        "right_probe": "angle_45",
+        "metric": "sin_sq_plus_cos_sq",
+        "tolerance_percent": 1
+      }
+    ]
+  }
+}

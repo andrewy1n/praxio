@@ -103,38 +103,38 @@ runtime.onRender(function(ctx) {
   const c0 = getC0()
 
   ctx.clearRect(0, 0, W, H)
-  ctx.fillStyle = '#0a0a0a'
+  ctx.fillStyle = '#f9fafb'
   ctx.fillRect(0, 0, W, H)
 
   // ── Chamber: colour cells by concentration ─────────────────────────────────
   for (let i = 0; i < N; i++) {
     const c = Math.max(0, Math.min(1, conc[i]))
     const x = PL + i * cellW
-    // Blue-tinted fill: dark at c=0, bright cobalt at c=1
-    const r  = Math.round(8  + c * 14)
-    const g2 = Math.round(16 + c * 100)
-    const b  = Math.round(28 + c * 200)
+    // Light theme: white at c=0, deep blue at c=1
+    const r  = Math.round(241 - c * 212)
+    const g2 = Math.round(245 - c * 167)
+    const b  = Math.round(249 - c * 33)
     ctx.fillStyle = `rgb(${r},${g2},${b})`
     ctx.fillRect(x, PT, cellW + 0.5, chamberH)
   }
 
   // Chamber border
-  ctx.strokeStyle = '#444'; ctx.lineWidth = 1.5
+  ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1.5
   ctx.strokeRect(PL, PT, chamberW, chamberH)
 
   // Membrane (centre dashed line)
-  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1.5
+  ctx.strokeStyle = '#374151'; ctx.lineWidth = 1.5
   ctx.setLineDash([5, 4])
   ctx.beginPath(); ctx.moveTo(midX, PT); ctx.lineTo(midX, PT + chamberH); ctx.stroke()
   ctx.setLineDash([])
 
   // Labels inside chamber
-  ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,0.4)'
   ctx.fillText('HIGH', PL + chamberW / 4,       PT + chamberH / 2)
   ctx.fillText('LOW',  PL + 3 * chamberW / 4,   PT + chamberH / 2)
 
   // Header row
-  ctx.fillStyle = '#888'; ctx.font = '10px monospace'; ctx.textAlign = 'left'
+  ctx.fillStyle = '#6b7280'; ctx.font = '10px monospace'; ctx.textAlign = 'left'
   ctx.fillText('membrane', midX - 32, PT - 6)
   ctx.textAlign = 'right'
   ctx.fillText(`D = ${getD().toFixed(2)}  ·  t = ${simTime.toFixed(1)} s`, W - PR, PT - 6)
@@ -144,30 +144,30 @@ runtime.onRender(function(ctx) {
   const GW = chamberW, GH = GRAPH_H
   const GB = GT + GH
 
-  ctx.fillStyle = '#111'; ctx.fillRect(GL, GT, GW, GH)
-  ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1; ctx.strokeRect(GL, GT, GW, GH)
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(GL, GT, GW, GH)
+  ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.strokeRect(GL, GT, GW, GH)
 
   // Y-axis ticks and labels
-  ctx.fillStyle = '#555'; ctx.font = '9px monospace'; ctx.textAlign = 'right'
+  ctx.fillStyle = '#6b7280'; ctx.font = '9px monospace'; ctx.textAlign = 'right'
   for (let t = 0; t <= 1; t += 0.25) {
     const ty = GB - (t / 1) * GH
     ctx.fillText(t.toFixed(2), GL + 28, ty + 3)
     if (t > 0 && t < 1) {
-      ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = 1
+      ctx.strokeStyle = '#f3f4f6'; ctx.lineWidth = 1
       ctx.beginPath(); ctx.moveTo(GL + 30, ty); ctx.lineTo(GL + GW, ty); ctx.stroke()
     }
   }
 
   // C0 reference dashed line
   const c0Y = GB - (c0 / 1.0) * GH
-  ctx.strokeStyle = '#444'; ctx.lineWidth = 1; ctx.setLineDash([3, 5])
+  ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1; ctx.setLineDash([3, 5])
   ctx.beginPath(); ctx.moveTo(GL + 30, c0Y); ctx.lineTo(GL + GW, c0Y); ctx.stroke()
   ctx.setLineDash([])
-  ctx.fillStyle = '#555'; ctx.textAlign = 'right'; ctx.font = '9px monospace'
+  ctx.fillStyle = '#6b7280'; ctx.textAlign = 'right'; ctx.font = '9px monospace'
   ctx.fillText('C₀', GL + 28, c0Y + 3)
 
   // Profile curve
-  ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2
+  ctx.strokeStyle = '#0891b2'; ctx.lineWidth = 2
   ctx.beginPath()
   for (let i = 0; i < N; i++) {
     const x = GL + (i / N) * GW
@@ -185,7 +185,7 @@ runtime.onRender(function(ctx) {
   const leftAvg  = leftSum  / half
   const rightAvg = rightSum / (N - half)
 
-  ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#888'
+  ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#6b7280'
   ctx.fillText(
     `C_left = ${leftAvg.toFixed(3)}   C_right = ${rightAvg.toFixed(3)}`,
     GL + GW / 2,

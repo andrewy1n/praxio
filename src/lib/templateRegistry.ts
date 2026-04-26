@@ -6,7 +6,7 @@ import { DesignDocSchema, type DesignDoc } from './types'
 /** Preset folder under public/presets/ */
 const DOMAIN_TO_PRESET: Record<DesignDoc['domain'], string | null> = {
   physics: 'projectile-motion',
-  math: null,
+  math: 'unit-circle',
   biology: 'population-growth',
   chemistry: null,
   general: null,
