@@ -494,12 +494,15 @@ STEP ADVANCEMENT (advance_step tool):
   `.trim()
 }
 
+export type Call2SpeechMode = 'socratic' | 'session_complete'
+
 export function buildCall2SystemPrompt(
   manifest: Manifest,
   designDoc: DesignDoc,
   appliedToolCalls: AppliedToolCall[],
   activeSocraticStepId?: string,
   stepQuestionReadAloud?: boolean,
+  speechMode: Call2SpeechMode = 'socratic',
 ): string {
   const stagingSummary = appliedToolCalls.length === 0
     ? 'You chose not to stage anything this turn. Respond with a Socratic move only.'
@@ -523,6 +526,36 @@ STEP QUESTION (VOICE) — read-aloud was already used:
     slider, click a region) without paraphrasing the entire prompt.
 `.trim()
     : ''
+
+  if (speechMode === 'session_complete') {
+    return `
+You are closing a completed learning session. You have no tools this turn; only
+text. Another call already applied the sim staging below.
+
+${stagingSummary}
+
+SESSION COMPLETE MODE:
+  - The student has finished the full Socratic plan for this concept.
+  - Give a warm, concise close: celebrate effort, restate the main insight they
+    reached in their own journey (from the conversation), in plain language.
+  - Do NOT introduce a new instructional thread or a new sim task.
+  - Do NOT give direct lecture-style explanations of the full theory; keep it
+    student-centered and grounded in what they did.
+  - Optional: end with at most one short reflective question OR a single forward
+    nudge (e.g. where they might apply this next). It is fine to end with no question.
+  - Keep total output to 2–4 short sentences.
+
+SIMULATION CONTEXT:
+${manifest.params.map(p =>
+  `  - ${p.name} (${p.min}–${p.max}${p.unit ? ' ' + p.unit : ''})`
+).join('\n')}
+
+SOCRATIC PLAN:
+${formatSocraticPlan(designDoc)}
+
+${activeStep}
+`.trim()
+  }
 
   return `
 You are the speaking half of a Socratic tutor. You have no tools this turn; only

@@ -79,7 +79,6 @@
           { "region": "launch",  "text": "vx = vy"   }
         ]
       },
-      "followup_if_correct": "Exactly. Now — what would change if gravity were lower?",
       "followup_if_surprised": "What are the velocity components at 45° compared to 30° and 60°?",
       "exit_condition": "Student articulates that 45° balances horizontal and vertical components, optimizing the product of horizontal speed and flight time."
     }

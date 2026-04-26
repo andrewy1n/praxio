@@ -2,6 +2,7 @@ import type {
   Branch,
   DesignDoc,
   SessionCompletionState,
+  SessionCompletionSummaryDetail,
   SessionLearningArtifact,
   TutorMessage,
   UpdateWorkspaceRequest,
@@ -313,18 +314,15 @@ export async function markWorkspaceCompleted(input: {
   workspaceId: string
   sessionId: string
   completedStepIds: string[]
-  synthesis: string
-  transferQuestion: string
+  summary: SessionCompletionSummaryDetail
 }): Promise<void> {
   const now = new Date()
+  const synthesis = input.summary.synthesis
   const completion: SessionCompletionState = {
     isComplete: true,
     completedStepIds: input.completedStepIds,
     completedAt: now.getTime(),
-    summary: {
-      synthesis: input.synthesis,
-      transferQuestion: input.transferQuestion,
-    },
+    summary: input.summary,
   }
 
   const artifact: SessionLearningArtifact = {
@@ -332,8 +330,7 @@ export async function markWorkspaceCompleted(input: {
     workspaceId: input.workspaceId,
     completedStepIds: input.completedStepIds,
     keyMoments: [],
-    finalSynthesis: input.synthesis,
-    transferQuestion: input.transferQuestion,
+    finalSynthesis: synthesis,
     createdAt: now,
   }
 
@@ -346,7 +343,7 @@ export async function markWorkspaceCompleted(input: {
         status: 'completed' as const,
         completedAt: now,
         lastActiveAt: now,
-        completionSummary: input.synthesis.slice(0, 500),
+        completionSummary: synthesis.slice(0, 500),
         completedStepIds: input.completedStepIds,
         completion,
         learningArtifact: artifact,
@@ -355,7 +352,3 @@ export async function markWorkspaceCompleted(input: {
   )
 }
 
-export function buildDefaultTransferQuestion(designDoc: DesignDoc): string {
-  const concept = designDoc.concept.trim()
-  return `How would this change if we altered one key parameter in "${concept}" and re-ran the scenario?`
-}

@@ -584,6 +584,11 @@ export type AppliedToolCall = {
 
 export type SpeakRequest = StageRequest & {
   appliedToolCalls: AppliedToolCall[]
+  /**
+   * When true, Call 2 uses session-complete phrasing (short celebratory close)
+   * instead of mandatory Socratic questions.
+   */
+  sessionCompleting?: boolean
 }
 
 // ─── Workspace API (planning/api_contracts.md) ───────────────────────────────
@@ -615,14 +620,26 @@ export type GetWorkspaceParams = {
   workspaceId: string
 }
 
+/** Structured session recap shown on completion overlay and persisted with the workspace. */
+export type SessionCompletionSummaryDetail = {
+  title: string
+  synthesis: string
+  evidence: string[]
+  /** Optional transfer / reflection prompt; may be empty. */
+  nextPrompt?: string
+}
+
+export type CompletionSummaryInput = {
+  designDoc: DesignDoc
+  completedStepIds: string[]
+  messages: TutorMessage[]
+}
+
 export type SessionCompletionState = {
   isComplete: boolean
   completedStepIds: string[]
   completedAt?: number
-  summary?: {
-    synthesis: string
-    transferQuestion: string
-  }
+  summary?: SessionCompletionSummaryDetail
 }
 
 export type GetWorkspaceResponse = {
@@ -656,8 +673,18 @@ export type UpdateWorkspaceRequest = {
   lastActiveAt?: string
   completedAt?: string
   completionSummary?: string
-  /** Replaces completed step ids when provided (merge on server). */
+  /**
+   * When provided, replaces `workspaces.completedStepIds` (use plan order:
+   * `designDoc.socratic_plan.map(s => s.id).filter(...)`).
+   * Clients may PATCH this immediately after a step completes so reloads do not
+   * lose progress before the next tutor turn.
+   */
   completedStepIds?: string[]
+  /**
+   * When provided, updates the main branch’s `currentSocraticStepId` for resume
+   * (dropdown + active step after `advance_step`).
+   */
+  currentSocraticStepId?: string
 }
 
 export type UpdateWorkspaceResponse = {
@@ -675,8 +702,6 @@ export type SessionLearningArtifact = {
     timestamp: number
   }>
   finalSynthesis: string
-  transferQuestion: string
-  transferResponse?: string
   createdAt: Date
 }
 

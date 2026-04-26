@@ -1,13 +1,16 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useParams, useSearchParams, useRouter } from 'next/navigation'
+import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation'
 import SimContainer from '@/components/SimContainer'
 import WorkspaceTopBar from '@/components/workspace/WorkspaceTopBar'
 import WorkspaceTutorStrip from '@/components/workspace/WorkspaceTutorStrip'
 import type { TutorStripState } from '@/components/workspace/WorkspaceTutorStrip'
 import SimControlsOverlay from '@/components/SimControlsOverlay'
 import SocraticStepQuestionBanner from '@/components/workspace/SocraticStepQuestionBanner'
+import SessionCompletionOverlay from '@/components/workspace/SessionCompletionOverlay'
+import { buildCompletionSummaryFallback } from '@/lib/completionSummaryFallback'
+import { normalizeCompletionSummaryDetail } from '@/lib/completionSummaryNormalize'
 import type {
   AgentCmd,
   AppliedToolCall,
@@ -18,6 +21,8 @@ import type {
   TutorMessage,
   DesignDoc,
   GenerateResponse,
+  SessionCompletionSummaryDetail,
+  UpdateWorkspaceRequest,
 } from '@/lib/types'
 import { pickSupportedMimeType } from '@/lib/micRecording'
 
@@ -88,7 +93,10 @@ export default function WorkspacePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const replayLastStep = searchParams.get('replay') === '1'
+  const pathname = usePathname()
+  /** Dismiss completion overlay: keep sim + tutor usable (does not reload workspace — avoids stuck manifest loading). */
+  const continueExploring =
+    searchParams.get('continue') === '1' || searchParams.get('replay') === '1'
   const [simCode, setSimCode] = useState<string | null>(null)
   const [renderer, setRenderer] = useState<'p5' | 'canvas2d' | 'jsxgraph' | 'matter' | null>(null)
   const [manifest, setManifest] = useState<Manifest | null>(null)
@@ -103,8 +111,7 @@ export default function WorkspacePage() {
   const [paused, setPaused] = useState(false)
   const [simEventHint, setSimEventHint] = useState<string | null>(null)
   const [workspaceStatus, setWorkspaceStatus] = useState<'in_progress' | 'completed'>('in_progress')
-  const [completionSummary, setCompletionSummary] = useState<string | null>(null)
-  const [transferQuestion, setTransferQuestion] = useState<string | null>(null)
+  const [completionDetail, setCompletionDetail] = useState<SessionCompletionSummaryDetail | null>(null)
   const [sessionId] = useState(() => typeof window === 'undefined' ? 'demo' : getSessionId())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const tutorTurnInFlightRef = useRef(false)
@@ -143,6 +150,25 @@ export default function WorkspacePage() {
     skipNextAutoReadRef.current = false
   }, [workspaceId])
 
+  const patchWorkspaceProgress = useCallback(
+    async (fields: Partial<Omit<UpdateWorkspaceRequest, 'sessionId'>>) => {
+      if (workspaceId === 'demo' || workspaceId === 'dev') return
+      try {
+        const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, ...fields } satisfies UpdateWorkspaceRequest),
+        })
+        if (!res.ok) {
+          console.warn('[workspace] PATCH failed', res.status, await res.text().catch(() => ''))
+        }
+      } catch (e) {
+        console.warn('[workspace] PATCH error', e)
+      }
+    },
+    [sessionId, workspaceId],
+  )
+
   // Mark a specific step complete and move to the next one, guarded against the
   // student having manually switched steps via the dropdown mid-turn. This is
   // the ONLY path that advances steps during a session — it fires when the
@@ -156,13 +182,27 @@ export default function WorkspacePage() {
     // Tutor's Call 2 response speaks the transition; skip the next auto-read
     // so we don't overlap its speech with the raw step question.
     skipNextAutoReadRef.current = true
-    setCompletedStepIds(prev => (prev.includes(stepId) ? prev : [...prev, stepId]))
+
+    const cur = activeStepIdRef.current
+    const nextActive =
+      cur !== stepId || idx < 0
+        ? cur
+        : (plan[idx + 1]?.id ?? cur)
+
+    setCompletedStepIds(prev => {
+      const next = prev.includes(stepId) ? prev : [...prev, stepId]
+      const ordered = plan.map(s => s.id).filter(id => next.includes(id))
+      const body: Partial<Omit<UpdateWorkspaceRequest, 'sessionId'>> = { completedStepIds: ordered }
+      if (nextActive) body.currentSocraticStepId = nextActive
+      void patchWorkspaceProgress(body)
+      return next
+    })
     setActiveStepId(current => {
       if (current !== stepId) return current
       if (idx < 0) return current
       return plan[idx + 1]?.id ?? current
     })
-  }, [designDoc])
+  }, [designDoc, patchWorkspaceProgress])
 
   const stopTutorAudio = useCallback(() => {
     const audio = audioRef.current
@@ -296,13 +336,18 @@ export default function WorkspacePage() {
       // words refer to the same step. Skip if the student dropdown-switched
       // mid-turn (read the ref, not the stale closure value).
       let speakStepId: string | null | undefined = activeStepIdRef.current
+      let isLastStepCompletion = false
       if (tutorRequestedAdvance && args.submittedStepId) {
         const plan = designDoc.socratic_plan
         const idx = plan.findIndex(s => s.id === args.submittedStepId)
         const nextStepId = idx >= 0 ? plan[idx + 1]?.id ?? null : null
-        if (nextStepId && activeStepIdRef.current === args.submittedStepId) {
-          speakStepId = nextStepId
+        if (activeStepIdRef.current === args.submittedStepId) {
           completeAndAdvanceFrom(args.submittedStepId)
+          if (nextStepId) {
+            speakStepId = nextStepId
+          } else {
+            isLastStepCompletion = true
+          }
         }
       }
 
@@ -313,6 +358,7 @@ export default function WorkspacePage() {
           ...stageBody,
           activeSocraticStepId: speakStepId || undefined,
           appliedToolCalls,
+          sessionCompleting: isLastStepCompletion,
         }),
       })
       if (!speakRes.ok) {
@@ -346,10 +392,80 @@ export default function WorkspacePage() {
       setTutorState('tutor speaking')
       await speakTutorText(tutorText)
       setTutorState('idle')
+
+      if (isLastStepCompletion && designDoc) {
+        const finalMessages: TutorMessage[] = [...nextAssistantBase, { role: 'assistant', content: tutorText }]
+        const effectiveCompleted = args.submittedStepId
+          ? [...new Set([...completedStepIds, args.submittedStepId])]
+          : completedStepIds
+
+        let detail: SessionCompletionSummaryDetail | null = null
+
+        if (workspaceId !== 'demo' && workspaceId !== 'dev') {
+          for (let attempt = 0; attempt < 4 && !detail; attempt++) {
+            if (attempt > 0) await new Promise(r => setTimeout(r, 400))
+            try {
+              const res = await fetch(
+                `/api/workspaces/${encodeURIComponent(workspaceId)}?sessionId=${encodeURIComponent(sessionId)}`,
+              )
+              if (!res.ok) continue
+              const payload = (await res.json()) as GetWorkspaceResponse
+              if (payload.workspace.status !== 'completed') continue
+              detail = normalizeCompletionSummaryDetail(payload.completion?.summary) ?? null
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+
+        if (!detail) {
+          try {
+            const res = await fetch('/api/tutor/completion-summary', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                designDoc,
+                completedStepIds: effectiveCompleted,
+                messages: finalMessages,
+              }),
+            })
+            if (res.ok) {
+              detail = (await res.json()) as SessionCompletionSummaryDetail
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        if (!detail) {
+          detail = buildCompletionSummaryFallback({
+            designDoc,
+            completedStepIds: effectiveCompleted,
+            messages: finalMessages,
+          })
+        }
+
+        setCompletionDetail(detail)
+        setWorkspaceStatus('completed')
+
+        if (workspaceId !== 'demo' && workspaceId !== 'dev') {
+          const orderedCompleted = designDoc.socratic_plan
+            .map(s => s.id)
+            .filter(id => effectiveCompleted.includes(id))
+          const persist: Partial<Omit<UpdateWorkspaceRequest, 'sessionId'>> = {
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completionSummary: detail.synthesis,
+            completedStepIds: orderedCompleted,
+          }
+          if (speakStepId) persist.currentSocraticStepId = speakStepId
+          void patchWorkspaceProgress(persist)
+        }
+      }
     } finally {
       tutorTurnInFlightRef.current = false
     }
-  }, [activeStepId, completeAndAdvanceFrom, designDoc, manifest, sessionId, speakTutorText, stopTutorAudio, workspaceId])
+  }, [activeStepId, completeAndAdvanceFrom, completedStepIds, designDoc, manifest, patchWorkspaceProgress, sessionId, speakTutorText, stopTutorAudio, workspaceId])
 
   const enqueueAgentCmd = useCallback((cmd: AgentCmd) => {
     setAgentCommands(prev => [...prev, cmd])
@@ -375,8 +491,7 @@ export default function WorkspacePage() {
           setSimPhase('idle')
           setPaused(false)
           setWorkspaceStatus('in_progress')
-          setCompletionSummary(null)
-          setTransferQuestion(null)
+          setCompletionDetail(null)
           return
         }
 
@@ -395,8 +510,7 @@ export default function WorkspacePage() {
           setSimPhase('idle')
           setPaused(false)
           setWorkspaceStatus('in_progress')
-          setCompletionSummary(null)
-          setTransferQuestion(null)
+          setCompletionDetail(null)
           return
         }
 
@@ -415,7 +529,12 @@ export default function WorkspacePage() {
               = payload.branch?.currentSocraticStepId
                 ?? (isCompleted ? finalStepId : plan[0]?.id)
                 ?? null
-            const activeForEntry = replayLastStep
+            const continueFromUrl = typeof window !== 'undefined'
+              && (
+                new URLSearchParams(window.location.search).get('continue') === '1'
+                || new URLSearchParams(window.location.search).get('replay') === '1'
+              )
+            const activeForEntry = isCompleted && continueFromUrl
               ? finalStepId ?? defaultStepId
               : defaultStepId
             setDesignDoc(w.designDoc)
@@ -425,8 +544,18 @@ export default function WorkspacePage() {
               setMessages(payload.branch.conversationHistory)
             }
             setWorkspaceStatus(w.status)
-            setCompletionSummary(payload.completion?.summary?.synthesis ?? null)
-            setTransferQuestion(payload.completion?.summary?.transferQuestion ?? null)
+            if (w.status === 'completed') {
+              setCompletionDetail(
+                normalizeCompletionSummaryDetail(payload.completion?.summary)
+                  ?? buildCompletionSummaryFallback({
+                    designDoc: w.designDoc,
+                    completedStepIds: w.completedStepIds ?? [],
+                    messages: payload.branch?.conversationHistory ?? [],
+                  }),
+              )
+            } else {
+              setCompletionDetail(null)
+            }
             setPendingEvents([])
             setAgentCommands([])
             setManifest(null)
@@ -448,8 +577,7 @@ export default function WorkspacePage() {
         setDesignDoc(data.designDoc)
         setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
         setWorkspaceStatus('in_progress')
-        setCompletionSummary(null)
-        setTransferQuestion(null)
+        setCompletionDetail(null)
         setPendingEvents([])
         setAgentCommands([])
         setManifest(null)
@@ -466,7 +594,7 @@ export default function WorkspacePage() {
 
     void run()
     return () => { cancelled = true }
-  }, [replayLastStep, sessionId, workspaceId])
+  }, [sessionId, workspaceId])
 
   useEffect(() => {
     return () => {
@@ -717,6 +845,7 @@ export default function WorkspacePage() {
   const autoReadStepId = activeStep?.id ?? null
   const autoReadQuestion = activeStep?.question ?? null
   useEffect(() => {
+    if (workspaceStatus === 'completed' && !continueExploring) return
     if (!autoReadStepId || !autoReadQuestion) return
     if (autoReadStepIdRef.current === autoReadStepId) return
     if (skipNextAutoReadRef.current) {
@@ -742,7 +871,7 @@ export default function WorkspacePage() {
       setTutorState(prev => (prev === 'tutor speaking' ? 'idle' : prev))
     })()
     return () => { cancelled = true }
-  }, [autoReadStepId, autoReadQuestion, speakTutorText])
+  }, [autoReadStepId, autoReadQuestion, continueExploring, speakTutorText, workspaceStatus])
 
   // First user gesture unlocks queued auto-read audio (browser autoplay policy).
   // If the gesture lands on the tutor strip (mic/send/input), the user is about
@@ -799,66 +928,46 @@ export default function WorkspacePage() {
       />
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
-        {workspaceStatus === 'completed' && !replayLastStep ? (
-          <div className="pointer-events-none absolute inset-x-4 top-4 z-30 mx-auto max-w-[var(--measure-lg)] rounded-[var(--r)] border border-[color:var(--border)] bg-white/95 p-3 shadow-[var(--shadow-md)] backdrop-blur">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--ink3)]">Completed session</p>
-            {completionSummary ? (
-              <p className="mt-1 text-[13px] text-[color:var(--ink)] line-clamp-2">{completionSummary}</p>
-            ) : null}
-            {transferQuestion ? (
-              <p className="mt-1 text-[12px] text-[color:var(--ink2)] line-clamp-2">{transferQuestion}</p>
-            ) : null}
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={() => router.push(`/workspace/${encodeURIComponent(workspaceId)}?replay=1`)}
-                className="pointer-events-auto rounded-[var(--r)] border border-[color:var(--border)] bg-white px-3 py-1.5 text-[11px] font-medium text-[color:var(--ink2)]"
-              >
-                Replay last step
-              </button>
-              <button
-                type="button"
-                onClick={() => router.push('/')}
-                className="pointer-events-auto rounded-[var(--r)] border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1.5 text-[11px] font-medium text-[color:var(--ink2)]"
-              >
-                New concept
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        <SimContainer
-          simCode={simCode}
-          renderer={renderer}
-          activeStep={activeStep}
-          activeStepId={activeStepId}
-          episodicFromDesign={designDoc?.episodic !== false}
-          agentCommands={agentCommands}
-          onManifest={handleManifest}
-          onMessage={handleIframeMessage}
-          onStepEvent={handleStepEvent}
-        />
-
-        {activeStep?.question ? (
-          <div className="pointer-events-none absolute inset-0 z-20 flex min-w-0 items-start justify-center p-3 sm:p-4">
-            <SocraticStepQuestionBanner
-              question={activeStep.question}
-              stepId={activeStep.id}
-            />
-          </div>
-        ) : null}
-
-        {manifest && activeStep?.interaction?.kind !== 'prediction_sketch' ? (
-          <SimControlsOverlay
-            manifest={manifest}
-            phase={simPhase}
-            paused={paused}
-            onLaunch={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'launch' })}
-            onPause={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'pause' })}
-            onPlay={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'play' })}
-            onReset={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'reset' })}
+        <div
+          className={
+            workspaceStatus === 'completed' && !continueExploring
+              ? 'pointer-events-none relative flex min-h-0 flex-1 flex-col overflow-hidden'
+              : 'relative flex min-h-0 flex-1 flex-col overflow-hidden'
+          }
+        >
+          <SimContainer
+            simCode={simCode}
+            renderer={renderer}
+            activeStep={activeStep}
+            activeStepId={activeStepId}
+            episodicFromDesign={designDoc?.episodic !== false}
+            agentCommands={agentCommands}
+            onManifest={handleManifest}
+            onMessage={handleIframeMessage}
+            onStepEvent={handleStepEvent}
           />
-        ) : null}
+
+          {activeStep?.question && !(workspaceStatus === 'completed' && !continueExploring) ? (
+            <div className="pointer-events-none absolute inset-0 z-20 flex min-w-0 items-start justify-center p-3 sm:p-4">
+              <SocraticStepQuestionBanner
+                question={activeStep.question}
+                stepId={activeStep.id}
+              />
+            </div>
+          ) : null}
+
+          {manifest && activeStep?.interaction?.kind !== 'prediction_sketch' ? (
+            <SimControlsOverlay
+              manifest={manifest}
+              phase={simPhase}
+              paused={paused}
+              onLaunch={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'launch' })}
+              onPause={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'pause' })}
+              onPlay={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'play' })}
+              onReset={() => enqueueAgentCmd({ type: 'AGENT_CMD', action: 'reset' })}
+            />
+          ) : null}
+        </div>
       </div>
 
       <WorkspaceTutorStrip
@@ -868,7 +977,17 @@ export default function WorkspacePage() {
         tutorState={tutorState}
         simEventHint={simEventHint}
         showSimHint
+        disabled={workspaceStatus === 'completed' && !continueExploring}
       />
+
+      {workspaceStatus === 'completed' && !continueExploring && completionDetail ? (
+        <SessionCompletionOverlay
+          conceptTitle={designDoc?.concept ?? ''}
+          summary={completionDetail}
+          onNewConcept={() => router.push('/')}
+          onKeepExploring={() => router.replace(`${pathname}?continue=1`)}
+        />
+      ) : null}
     </div>
   )
 }

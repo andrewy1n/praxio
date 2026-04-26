@@ -1,11 +1,12 @@
 import {
   assertWorkspaceSession,
-  buildDefaultTransferQuestion,
   deleteWorkspaceForSession,
   getMainBranchForWorkspace,
   markWorkspaceCompleted,
   patchWorkspaceMetadata,
+  setBranchCurrentStep,
 } from '@/lib/workspaceDb'
+import { normalizeCompletionSummaryDetail } from '@/lib/completionSummaryNormalize'
 import type { GetWorkspaceResponse, SessionCompletionState, UpdateWorkspaceRequest } from '@/lib/types'
 import type { NextRequest } from 'next/server'
 
@@ -14,16 +15,37 @@ type RouteParams = { params: Promise<{ workspaceId: string }> }
 function toCompletionState(
   doc: Awaited<ReturnType<typeof assertWorkspaceSession>>,
 ): SessionCompletionState | undefined {
-  if (doc.completion) return doc.completion
+  if (doc.completion) {
+    let summary = normalizeCompletionSummaryDetail(doc.completion.summary)
+    if (!summary) {
+      summary = normalizeCompletionSummaryDetail({
+        synthesis: doc.completionSummary ?? doc.learningArtifact?.finalSynthesis ?? 'Session complete.',
+      })
+    }
+    if (!summary) {
+      summary = {
+        title: 'Session complete',
+        synthesis: 'Session complete.',
+        evidence: ['Session completed.'],
+      }
+    }
+    return {
+      ...doc.completion,
+      summary,
+    }
+  }
   if (doc.status !== 'completed') return undefined
   const synthesis = doc.completionSummary ?? doc.learningArtifact?.finalSynthesis ?? ''
-  const transferQuestion
-    = doc.learningArtifact?.transferQuestion ?? buildDefaultTransferQuestion(doc.designDoc)
+  const summary = normalizeCompletionSummaryDetail({ synthesis }) ?? {
+    title: 'Session complete',
+    synthesis: synthesis || 'Session complete.',
+    evidence: synthesis ? [synthesis.length > 180 ? `${synthesis.slice(0, 177)}…` : synthesis] : ['Session completed.'],
+  }
   return {
     isComplete: true,
     completedStepIds: doc.completedStepIds ?? [],
     completedAt: doc.completedAt ? new Date(doc.completedAt).getTime() : undefined,
-    summary: { synthesis, transferQuestion },
+    summary,
   }
 }
 
@@ -106,11 +128,29 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         workspaceId,
         sessionId,
         completedStepIds,
-        synthesis,
-        transferQuestion: buildDefaultTransferQuestion(doc.designDoc),
+        summary: {
+          title: 'Session complete',
+          synthesis,
+          evidence: [
+            'You completed every step in this workspace.',
+            'Open a new concept when you are ready for more.',
+          ],
+        },
       })
     } else {
       await patchWorkspaceMetadata(workspaceId, sessionId, json)
+    }
+
+    if (json.currentSocraticStepId !== undefined) {
+      const branch = await getMainBranchForWorkspace(workspaceId)
+      if (branch) {
+        await setBranchCurrentStep({
+          branchId: branch.branchId,
+          workspaceId,
+          sessionId,
+          currentSocraticStepId: json.currentSocraticStepId,
+        })
+      }
     }
 
     return Response.json({ ok: true as const })

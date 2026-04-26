@@ -858,7 +858,7 @@ export default function LandingPage() {
                             {item.status === 'completed' ? (
                               <button
                                 type="button"
-                                onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}?replay=1`)}
+                                onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}?continue=1`)}
                                 disabled={deletingWorkspaceId === item.workspaceId}
                                 className="rounded-[var(--r)] border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[color:var(--ink2)] hover:border-[color:var(--border-strong)]"
                               >
@@ -915,7 +915,7 @@ export default function LandingPage() {
                             {item.status === 'completed' ? (
                               <button
                                 type="button"
-                                onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}?replay=1`)}
+                                onClick={() => router.push(`/workspace/${encodeURIComponent(item.workspaceId)}?continue=1`)}
                                 disabled={deletingWorkspaceId === item.workspaceId}
                                 className="rounded-[var(--r)] border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[color:var(--ink2)] hover:border-[color:var(--border-strong)]"
                               >

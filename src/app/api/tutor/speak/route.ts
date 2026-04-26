@@ -1,10 +1,10 @@
 import { streamText } from 'ai'
 import { google } from '@ai-sdk/google'
+import { generateSessionCompletionSummary } from '@/lib/completionSummary'
 import { buildCall2SystemPrompt } from '@/lib/prompts'
 import type { SpeakRequest } from '@/lib/types'
 import {
   assertWorkspaceSession,
-  buildDefaultTransferQuestion,
   finalizeLastSocraticStepIfNeeded,
   getMainBranchForWorkspace,
   getWorkspaceDocForSession,
@@ -35,13 +35,23 @@ export async function POST(req: Request) {
     sessionId,
     workspaceId,
     stepQuestionReadAloud,
+    sessionCompleting,
   }: SpeakRequest = await req.json()
 
   const messagesWithEvents = appendSimEvents(messages, pendingEvents)
 
+  const speechMode = sessionCompleting ? 'session_complete' : 'socratic'
+
   const result = streamText({
     model: tutorModel,
-    system: buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls, activeSocraticStepId, stepQuestionReadAloud),
+    system: buildCall2SystemPrompt(
+      manifest,
+      designDoc,
+      appliedToolCalls,
+      activeSocraticStepId,
+      stepQuestionReadAloud,
+      speechMode,
+    ),
     messages: messagesWithEvents,
   })
 
@@ -82,12 +92,16 @@ export async function POST(req: Request) {
         if (allPlanStepsComplete) {
           const doc = await getWorkspaceDocForSession(wid, sessionId)
           if (doc && doc.status !== 'completed') {
+            const summary = await generateSessionCompletionSummary({
+              designDoc,
+              completedStepIds,
+              messages: finalMessages,
+            })
             await markWorkspaceCompleted({
               workspaceId: wid,
               sessionId,
               completedStepIds,
-              synthesis: fullText.slice(0, 2000).trim() || 'Session complete.',
-              transferQuestion: buildDefaultTransferQuestion(doc.designDoc),
+              summary,
             })
           }
         }

@@ -155,8 +155,18 @@ type UpdateWorkspaceRequest = {
   lastActiveAt?: string
   completedAt?: string
   completionSummary?: string
+  /** Replaces workspace `completedStepIds` when provided (plan order recommended). */
+  completedStepIds?: string[]
+  /** Updates main branch `currentSocraticStepId` for resume when provided. */
+  currentSocraticStepId?: string
 }
 ```
+
+**Behavior**
+
+- Clients may PATCH `completedStepIds` (and optionally `currentSocraticStepId`) as soon as a Socratic step completes (e.g. after `advance_step`) so a reload does not lose progress before the next tutor turn.
+- When `status` is set to `'completed'` and the workspace is not already completed, the server runs the same completion persistence as the tutor path (`markWorkspaceCompleted` with structured recap fields derived from `completionSummary` when no richer summary exists yet).
+- `currentSocraticStepId` is applied to the main branch document after workspace metadata updates, when present.
 
 **Response**
 ```typescript
@@ -613,6 +623,8 @@ Streaming text-only. No tools. The system prompt includes the staging decisions 
 ```typescript
 type SpeakRequest = StageRequest & {
   appliedToolCalls: Array<{ toolName: string; input: Record<string, unknown> }>
+  /** When true, Call 2 uses session-close phrasing instead of mandatory Socratic questions. */
+  sessionCompleting?: boolean
 }
 ```
 
@@ -631,13 +643,15 @@ export async function POST(req: Request) {
     appliedToolCalls,
     activeSocraticStepId,
     stepQuestionReadAloud,
+    sessionCompleting,
   } = await req.json()
 
   const messagesWithEvents = appendSimEvents(messages, pendingEvents)
+  const speechMode = sessionCompleting ? 'session_complete' : 'socratic'
 
   const result = streamText({
     model: google('gemini-2.5-flash'),
-    system: buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls, activeSocraticStepId, stepQuestionReadAloud),
+    system: buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls, activeSocraticStepId, stepQuestionReadAloud, speechMode),
     messages: messagesWithEvents,
     // no tools — removes text/tool competition that drops text-gen reliability
   })
@@ -645,6 +659,14 @@ export async function POST(req: Request) {
   return result.toTextStreamResponse()
 }
 ```
+
+#### `POST /api/tutor/completion-summary`
+
+Non-streaming JSON. Builds the structured session recap (title, synthesis, evidence bullets, optional `nextPrompt`) from `designDoc`, `completedStepIds`, and `messages`. Used by the client when the workspace is not DB-backed or as a fallback; MongoDB workspaces also persist the same shape from `/api/tutor/speak` when the plan completes.
+
+**Request:** `{ designDoc: DesignDoc, completedStepIds: string[], messages: TutorMessage[] }`
+
+**Response:** `SessionCompletionSummaryDetail` (see completion contract below).
 
 **Client consumption**
 ```typescript
@@ -672,27 +694,28 @@ completion state instead of continuing the normal loop indefinitely.
 
 **Completion response shape**
 ```typescript
+type SessionCompletionSummaryDetail = {
+  title: string
+  synthesis: string
+  evidence: string[]
+  nextPrompt?: string
+}
+
 type SessionCompletionState = {
   isComplete: boolean
   completedStepIds: string[]
   completedAt?: number
-  summary?: {
-    // One concise reconciliation turn grounded in the student's actions.
-    synthesis: string
-    // One transfer check to test understanding in a new condition.
-    transferQuestion: string
-  }
+  summary?: SessionCompletionSummaryDetail
 }
 ```
 
 **Post-completion tutor behavior**
 
-- The tutor emits one short synthesis turn grounded in what the student did
-  (prediction/manipulation/observation), not a generic recap.
-- The tutor then asks one transfer question that changes conditions while preserving
-  the core concept.
-- After the transfer response, tutor calls become user-driven (e.g. replay/challenge),
-  not automatic step progression.
+- Call 2 may run in `session_complete` mode: short celebratory close grounded in the
+  conversation, without forcing a new sim task.
+- Structured recap (`SessionCompletionSummaryDetail`) is generated separately
+  (via `generateObject`) for the completion overlay and persistence, not by slicing
+  the final streamed tutor line.
 
 **Persistence artifact (per workspace session)**
 
@@ -710,16 +733,14 @@ type SessionLearningArtifact = {
     timestamp: number
   }>
   finalSynthesis: string
-  transferQuestion: string
-  transferResponse?: string
   createdAt: Date
 }
 ```
 
 **UI actions exposed on completion**
 
-- `try_challenge` — run the transfer-check path (if not already answered)
-- `replay_step` — reopen a specific step in `socratic_plan`
+- Full-screen completion overlay with structured recap
+- `continue` — e.g. `?continue=1` to dismiss the completion overlay and keep using the sim and tutor (`?replay=1` is still accepted for backward compatibility)
 - `new_concept` — navigate back to landing
 
 ---

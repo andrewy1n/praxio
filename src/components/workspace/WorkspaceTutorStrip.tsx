@@ -12,6 +12,8 @@ type Props = {
   tutorState: TutorStripState
   simEventHint?: string | null
   showSimHint?: boolean
+  /** When true, input and mic are disabled (e.g. session completed). */
+  disabled?: boolean
 }
 
 function Waveform({ state }: { state: TutorStripState }) {
@@ -67,6 +69,7 @@ export default function WorkspaceTutorStrip({
   tutorState,
   simEventHint,
   showSimHint = true,
+  disabled = false,
 }: Props) {
   const [inputVal, setInputVal] = useState('')
 
@@ -75,7 +78,7 @@ export default function WorkspaceTutorStrip({
   const lastUserIdx = lastUserMsg ? messages.lastIndexOf(lastUserMsg) : -1
   const lastTutorIdx = lastTutorMsg ? messages.lastIndexOf(lastTutorMsg) : -1
   const userSentAwaitingTutor = lastUserIdx > lastTutorIdx
-  const isBusy = tutorState !== 'idle'
+  const isBusy = tutorState !== 'idle' || disabled
 
   const sentStatusText =
     tutorState === 'processing'
@@ -115,10 +118,13 @@ export default function WorkspaceTutorStrip({
   // Mic is clickable when idle (to start) OR when listening (to stop).
   // Disabled during processing / tutor speaking so we don't interrupt an
   // in-flight tutor turn.
-  const canMic = Boolean(onMic) && !hasDraft && (tutorState === 'idle' || isListening)
+  const canMic = Boolean(onMic) && !disabled && !hasDraft && (tutorState === 'idle' || isListening)
 
   return (
-    <footer data-tutor-strip="true" className="z-[100] flex h-[var(--tutor-strip-h)] shrink-0 items-stretch border-t border-[color:var(--border)] bg-[color:var(--bg)] font-[family-name:var(--font-dm-sans)]">
+    <footer
+      data-tutor-strip="true"
+      className={`z-[100] flex h-[var(--tutor-strip-h)] shrink-0 items-stretch border-t border-[color:var(--border)] bg-[color:var(--bg)] font-[family-name:var(--font-dm-sans)] ${disabled ? 'opacity-60' : ''}`}
+    >
       <div className="flex w-[var(--tutor-status-w)] shrink-0 flex-col justify-center gap-1.5 border-r border-[color:var(--border)] px-4">
         <div
           className="flex items-center gap-1.5 font-[family-name:var(--font-dm-mono)] text-[11px] font-medium"
@@ -175,7 +181,7 @@ export default function WorkspaceTutorStrip({
           value={inputVal}
           onChange={e => setInputVal(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSend()}
-          placeholder="type reply…"
+          placeholder={disabled ? 'Session complete' : 'type reply…'}
           disabled={isBusy}
           className="h-[34px] min-w-0 flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 text-xs text-[color:var(--ink)] outline-none transition-colors placeholder:text-[color:var(--ink3)] focus:border-[color:var(--accent-border)] focus:bg-[color:var(--bg)]"
         />
