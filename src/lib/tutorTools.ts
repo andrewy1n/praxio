@@ -70,5 +70,10 @@ export function buildTutorTools(manifest: Manifest) {
         config: z.record(z.enum(paramNames), z.number()).describe('Param name → value overrides'),
       }),
     }),
+    advance_step: tool({
+      description:
+        'Signal that the CURRENT Socratic step is satisfied (its exit_condition is met) and the session should move to the next step. Call this at most once per turn, and only when the student\'s latest action or utterance clearly fulfills the current step\'s exit_condition. Calling this triggers a UI transition to the next step after the speech reply finishes; do not call it just because the student spoke.',
+      inputSchema: z.object({}),
+    }),
   }
 }

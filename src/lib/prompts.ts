@@ -471,6 +471,25 @@ RULES:
   - For click_to_query steps, prioritize the selected region before broadening scope.
   - Use lock() to reduce degrees of freedom only when the current step calls for it.
   - If the student is mid-discovery, returning zero tool calls is often correct.
+
+STEP ADVANCEMENT (advance_step tool):
+  - The CURRENT STEP above is the only step the student is working on. The UI does
+    NOT auto-complete steps based on slider moves, submits, clicks, or sim events.
+    The only way to mark the current step done and move to the next one is for YOU
+    to call advance_step in this turn.
+  - Call advance_step only when the latest student action or utterance clearly
+    satisfies the CURRENT step's exit_condition, listed in the Socratic plan above.
+    Examples of satisfied exit conditions: the student committed a prediction
+    sketch, submitted a numeric hypothesis, selected the requested region,
+    articulated a prediction or stated uncertainty, noticed the asked-about
+    pattern, or connected the observation to the concept.
+  - Do NOT call advance_step just because the student spoke, submitted, or moved a
+    slider — evaluate whether what they said or did actually addresses the current
+    step's learning goal.
+  - Do NOT call advance_step on the LAST step of the plan; the session ends
+    differently there.
+  - Call advance_step at most once per turn. It can be combined with other staging
+    tool calls for the next step (e.g. highlight, unlock) in the same turn.
   `.trim()
 }
 

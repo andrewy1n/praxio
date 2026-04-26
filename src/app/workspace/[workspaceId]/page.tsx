@@ -51,6 +51,9 @@ function toolCallToAgentCmd(toolCall: { toolName: string; input: Record<string, 
       return { type: 'AGENT_CMD', action: 'trigger_event', eventType: String(toolCall.input.type) }
     case 'set_scene':
       return { type: 'AGENT_CMD', action: 'set_scene', config: toolCall.input.config as Record<string, number> }
+    case 'advance_step':
+      // Handled client-side only (not a sim command).
+      return null
     default:
       return null
   }
@@ -96,14 +99,26 @@ export default function WorkspacePage() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const tutorTurnInFlightRef = useRef(false)
   const speechRecRef = useRef<any>(null)
+  // Mirror activeStepId into a ref so runTutorTurn can detect mid-turn
+  // dropdown switches (closure captures a stale activeStepId).
+  const activeStepIdRef = useRef<string | null>(null)
+  activeStepIdRef.current = activeStepId
 
-  const advanceStep = useCallback(() => {
-    if (!designDoc?.socratic_plan?.length) return
-    const plan = designDoc.socratic_plan
-    const currentIdx = activeStepId ? plan.findIndex(s => s.id === activeStepId) : -1
-    const nextId = currentIdx >= 0 ? (plan[currentIdx + 1]?.id ?? null) : (plan[0]?.id ?? null)
-    if (nextId) setActiveStepId(nextId)
-  }, [activeStepId, designDoc])
+  // Mark a specific step complete and move to the next one, guarded against the
+  // student having manually switched steps via the dropdown mid-turn. This is
+  // the ONLY path that advances steps during a session — it fires when the
+  // tutor calls the advance_step tool in its Call 1 staging response.
+  const completeAndAdvanceFrom = useCallback((stepId: string) => {
+    const plan = designDoc?.socratic_plan ?? []
+    if (!plan.length) return
+    setCompletedStepIds(prev => (prev.includes(stepId) ? prev : [...prev, stepId]))
+    setActiveStepId(current => {
+      if (current !== stepId) return current
+      const idx = plan.findIndex(s => s.id === current)
+      if (idx < 0) return current
+      return plan[idx + 1]?.id ?? current
+    })
+  }, [designDoc])
 
   const stopTutorAudio = useCallback(() => {
     const audio = audioRef.current
@@ -155,6 +170,12 @@ export default function WorkspacePage() {
   const runTutorTurn = useCallback(async (args: {
     nextMessages: TutorMessage[]
     events: SimEvent[]
+    /**
+     * The step id the student's action is being evaluated against. If the
+     * tutor signals advance_step in this turn, the page advances from this
+     * step (and only if the student is still on it when the turn finishes).
+     */
+    submittedStepId?: string | null
   }) => {
     if (!manifest || !designDoc) return
     if (tutorTurnInFlightRef.current) return
@@ -186,19 +207,46 @@ export default function WorkspacePage() {
       }
 
       const stageData = await stageRes.json() as { toolCalls: Array<{ toolName: string; input: Record<string, unknown> }> }
-      const appliedToolCalls: AppliedToolCall[] = stageData.toolCalls.map(toolCall => ({
+
+      // The tutor signals step completion by calling the advance_step tool.
+      // Split it out: it's not a sim command and we do not want it in Call 2's
+      // staging summary (it just nudges the tutor to "ask the next question"
+      // mid-sentence).
+      const tutorRequestedAdvance = stageData.toolCalls.some(tc => tc.toolName === 'advance_step')
+      const stagingToolCalls = stageData.toolCalls.filter(tc => tc.toolName !== 'advance_step')
+
+      const appliedToolCalls: AppliedToolCall[] = stagingToolCalls.map(toolCall => ({
         ...toolCall,
         result: null,
       }))
-      const commands = stageData.toolCalls
+      const commands = stagingToolCalls
         .map(toolCallToAgentCmd)
         .filter((cmd): cmd is AgentCmd => Boolean(cmd))
       setAgentCommands(prev => [...prev, ...commands])
 
+      // If the tutor signaled advance, transition the UI and the step id
+      // handed to Call 2 BEFORE speaking, so the banner and the tutor's
+      // words refer to the same step. Skip if the student dropdown-switched
+      // mid-turn (read the ref, not the stale closure value).
+      let speakStepId: string | null | undefined = activeStepIdRef.current
+      if (tutorRequestedAdvance && args.submittedStepId) {
+        const plan = designDoc.socratic_plan
+        const idx = plan.findIndex(s => s.id === args.submittedStepId)
+        const nextStepId = idx >= 0 ? plan[idx + 1]?.id ?? null : null
+        if (nextStepId && activeStepIdRef.current === args.submittedStepId) {
+          speakStepId = nextStepId
+          completeAndAdvanceFrom(args.submittedStepId)
+        }
+      }
+
       const speakRes = await fetch('/api/tutor/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...stageBody, appliedToolCalls }),
+        body: JSON.stringify({
+          ...stageBody,
+          activeSocraticStepId: speakStepId || undefined,
+          appliedToolCalls,
+        }),
       })
       if (!speakRes.ok) {
         console.warn('[tutor] speak failed', { status: speakRes.status, body: await speakRes.text().catch(() => '') })
@@ -230,7 +278,7 @@ export default function WorkspacePage() {
     } finally {
       tutorTurnInFlightRef.current = false
     }
-  }, [activeStepId, designDoc, manifest, sessionId, speakTutorText, stopTutorAudio, workspaceId])
+  }, [activeStepId, completeAndAdvanceFrom, designDoc, manifest, sessionId, speakTutorText, stopTutorAudio, workspaceId])
 
   const enqueueAgentCmd = useCallback((cmd: AgentCmd) => {
     setAgentCommands(prev => [...prev, cmd])
@@ -354,29 +402,38 @@ export default function WorkspacePage() {
   }, [])
 
   const handleStepEvent = useCallback((event: SimEvent) => {
-    // Treat explicit student submissions (sketch/hypothesis/focus) as a tutor turn trigger.
+    // Explicit student submissions (sketch/hypothesis/focus-click) are forwarded
+    // to the tutor so it can evaluate them. They do NOT auto-advance the step —
+    // only an advance_step tool call from the tutor advances.
     if (event.event === 'prediction_sketch_submitted'
       || event.event === 'hypothesis_submitted'
       || event.event === 'focus_selected') {
-      if (activeStepId) {
-        setCompletedStepIds(prev => prev.includes(activeStepId) ? prev : [...prev, activeStepId])
-      }
-      advanceStep()
       const events = [event]
       setPendingEvents([])
-      void runTutorTurn({ nextMessages: messages, events })
+      void runTutorTurn({
+        nextMessages: messages,
+        events,
+        submittedStepId: activeStepId,
+      })
       return
     }
 
     setPendingEvents(prev => [...prev, event])
-  }, [activeStepId, advanceStep, messages, runTutorTurn])
+  }, [activeStepId, messages, runTutorTurn])
 
   const handleSend = async (text: string) => {
     const next: TutorMessage[] = [...messages, { role: 'user', content: text }]
     setMessages(next)
     const events = pendingEvents
     setPendingEvents([])
-    await runTutorTurn({ nextMessages: next, events })
+    // Pass the step the student is responding TO so the tutor can advance
+    // from it via the advance_step tool. The page does not auto-advance; the
+    // tutor decides.
+    await runTutorTurn({
+      nextMessages: next,
+      events,
+      submittedStepId: activeStepId,
+    })
   }
 
   const handleMic = useCallback(() => {
