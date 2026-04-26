@@ -41,6 +41,10 @@ const SocraticStepSchema = z.object({
       text: z.string(),
     })).optional(),
     set_params: z.record(z.string(), z.number()).optional(),
+    /** Episodic sims only — triggers discrete launch/run (see postMessage `AGENT_CMD` launch). */
+    launch: z.boolean().optional(),
+    /** Clears all active annotations before this step's annotate list is applied. */
+    clear_annotations: z.boolean().optional(),
   }),
   expected_observation: z.string().optional(),
   followup_if_correct: z.string().optional(),

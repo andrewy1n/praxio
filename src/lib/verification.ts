@@ -55,6 +55,8 @@ function buildHeadlessRuntime(paramOverrides: Record<string, number>) {
     setCoordinateTransform(_opts: unknown) {},
     toScreenX(_x: number) { return 0 },
     toScreenY(_y: number) { return 0 },
+    getAnnotations() { return {} },
+    autoLaunch() {},
   }
 
   return {

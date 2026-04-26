@@ -207,6 +207,8 @@ const DesignDocSchema = z.object({
       highlight: z.array(z.string()).optional(),
       annotate: z.array(z.object({ region: z.string(), text: z.string() })).optional(),
       set_params: z.record(z.string(), z.number()).optional(),
+      /** Episodic sims only — parent sends `AGENT_CMD` launch after other staging (e.g. after set_params). */
+      launch: z.boolean().optional(),
     }),
     expected_observation: z.string().optional(),
     followup_if_correct: z.string().optional(),
@@ -307,6 +309,8 @@ function validateDesignDocConsistency(designDoc: DesignDoc): DesignDocConsistenc
 
 - `initial_staging.locked/highlighted` values that are not param IDs
 - `socratic_plan.interaction.params` or `staging.lock/unlock/highlight/set_params` values that are not param IDs
+- `staging.launch: true` only when `episodic === true` (non-episodic design docs must omit it or set `false`)
+- **Client (SimContainer):** if `staging.launch` is **omitted** and both the design doc and manifest are episodic, a step with non-empty `set_params` still triggers one `launch` after applying params (matches older saved design docs; use `launch: false` to set params only without running)
 - `socratic_plan.interaction.regions`, `target_region`, or `staging.annotate[].region` values that are not registered regions
 - `socratic_plan.interaction.event` values that are not declared emitted events
 - duplicate param, event, region, probe, or invariant IDs
@@ -774,6 +778,14 @@ export function buildTutorTools(manifest: Manifest) {
         config: z.record(z.enum(paramNames), z.number()).describe('Param name → value overrides'),
       }),
     }),
+
+    // Only include launch when manifest.episodic is true (discrete run/reset cycle)
+    ...(manifest.episodic ? {
+      launch: tool({
+        description: 'Run one discrete launch/run cycle. Use after set_param when the student should see the run with current params.',
+        parameters: z.object({}),
+      }),
+    } : {}),
 
     // Only include pause/play when manifest.animates is true
     ...(manifest.animates ? {

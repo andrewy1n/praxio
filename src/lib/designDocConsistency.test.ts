@@ -30,6 +30,20 @@ test('population-growth preset passes consistency', () => {
   assert.equal(r.valid, true, r.errors.map(e => `${e.path}: ${e.message}`).join('\n'))
 })
 
+test('rejects staging.launch when not episodic', () => {
+  const doc = loadPreset('projectile-motion')
+  const bad: DesignDoc = {
+    ...doc,
+    episodic: false,
+    socratic_plan: doc.socratic_plan.map((s, i) =>
+      i === 0 ? { ...s, staging: { ...s.staging, launch: true } } : s,
+    ),
+  }
+  const r = validateDesignDocConsistency(bad)
+  assert.equal(r.valid, false)
+  assert.ok(r.errors.some(e => e.path.includes('staging.launch')))
+})
+
 test('rejects unknown param in initial_staging', () => {
   const doc = loadPreset('projectile-motion')
   const bad: DesignDoc = {

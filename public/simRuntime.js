@@ -119,6 +119,17 @@
       runtime.reportPhase('done')
     },
 
+    getAnnotations() {
+      return { ...annotations }
+    },
+
+    autoLaunch() {
+      if (!launchFn || episodePhase !== 'idle') return
+      episodePhase = 'active'
+      launchFn()
+      parent.postMessage({ type: 'SIM_PHASE', phase: 'active' }, '*')
+    },
+
     // ── Coordinate transform helpers ─────────────────────────────────────────
     // Call setCoordinateTransform once (e.g. at top of onRender) whenever the
     // canvas size or physics domain changes. toScreenX/toScreenY return 0
@@ -202,7 +213,8 @@
     switch (msg.action) {
       case 'set_param': {
         const p = params[msg.target]
-        if (!p || lockedParams.has(msg.target)) return
+        if (!p) return
+        // Staging and tutor are agent-originated; lock only blocks student control (UI disables sliders).
         const prev = p.value
         p.value = Math.min(p.max, Math.max(p.min, msg.value))
         parent.postMessage({
@@ -255,6 +267,11 @@
         if (launchFn) {
           launchFn()
           parent.postMessage({ type: 'SIM_PHASE', phase: 'active' }, '*')
+        } else {
+          parent.postMessage(
+            { type: 'SIM_ERROR', error: 'AGENT_CMD launch: sim never called runtime.onLaunch — episodic flight not available' },
+            '*',
+          )
         }
         break
       case 'reset':

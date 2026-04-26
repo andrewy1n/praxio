@@ -219,6 +219,13 @@ export function validateDesignDocConsistency(
         }
       }
     }
+    if (st.launch === true && !designDoc.episodic) {
+      addError(
+        errors,
+        `socratic_plan[${si}].staging.launch`,
+        'staging.launch requires designDoc.episodic === true',
+      )
+    }
   }
 
   const probeIdSet = new Set<string>()

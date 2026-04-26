@@ -1,0 +1,144 @@
+{
+  "concept": "projectile motion — 45° maximizes range",
+  "domain": "physics",
+  "primitive": "physics.projectile",
+  "renderer": "p5",
+  "episodic": true,
+  "params": [
+    { "name": "launch_angle",     "range": [5, 85], "default": 30,  "label": "Launch Angle",    "unit": "°"    },
+    { "name": "initial_velocity", "range": [5, 50], "default": 20,  "label": "Initial Velocity", "unit": "m/s"  },
+    { "name": "gravity",          "range": [1, 20], "default": 9.8, "label": "Gravity",          "unit": "m/s²" }
+  ],
+  "governing_equations": [
+    "R = v\\cos(\\theta)\\cdot T",
+    "T = 2v\\sin(\\theta)/g",
+    "R(\\theta) = R(90^\\circ - \\theta) \\text{ — complementary symmetry}",
+    "45^\\circ \\text{ maximizes } R \\text{ when } v_x = v_y"
+  ],
+  "emit_events": ["launched", "landed"],
+  "register_regions": ["launch", "apex", "landing"],
+  "initial_staging": {
+    "locked": ["gravity", "initial_velocity"],
+    "highlighted": ["launch_angle"]
+  },
+  "socratic_plan": [
+    {
+      "id": "sketch_60_arc",
+      "learning_goal": "Surface the student's mental model of how a steeper angle changes the trajectory before they observe it.",
+      "question": "You just saw a 30° launch. Sketch what you think the arc looks like at 60° — same speed, same gravity, just steeper.",
+      "interaction": { "kind": "prediction_sketch" },
+      "staging": {
+        "lock": ["gravity", "initial_velocity"],
+        "highlight": ["launch_angle"],
+        "launch": false
+      },
+      "followup_if_surprised": "Hold that prediction in mind — let's see what actually happens.",
+      "exit_condition": "Prediction sketch submitted."
+    },
+    {
+      "id": "observe_symmetry",
+      "learning_goal": "Notice that 30° and 60° produce the same range and begin to articulate why through velocity components.",
+      "question": "Why might 30° and 60° land in the same place?",
+      "interaction": { "kind": "verbal_response" },
+      "staging": {
+        "set_params": { "launch_angle": 60 },
+        "launch": true,
+        "annotate": [
+          { "region": "landing", "text": "same range!" },
+          { "region": "apex",    "text": "vy = 0 at peak" }
+        ]
+      },
+      "followup_if_correct": "Right — so what does that suggest about the angle that maximizes range?",
+      "followup_if_surprised": "Look at the velocity components. What's the horizontal speed at 30° vs 60°? What's the vertical?",
+      "exit_condition": "Student articulates that the velocity components are mirrored / swapped between 30° and 60°."
+    },
+    {
+      "id": "predict_max",
+      "learning_goal": "Force a concrete commitment to where the maximum range angle lives, derivable from the symmetry just observed.",
+      "question": "Given that — what angle do you think maximizes range?",
+      "interaction": { "kind": "numeric_hypothesis", "metric": "angle", "unit": "°" },
+      "staging": {
+        "clear_annotations": true,
+        "set_params": { "launch_angle": 30 },
+        "launch": false
+      },
+      "followup_if_correct": "Let's test it.",
+      "followup_if_surprised": "You said 30° and 60° land in the same place. Where would the peak of that curve be?",
+      "exit_condition": "Numerical hypothesis submitted."
+    },
+    {
+      "id": "confirm_45",
+      "learning_goal": "Tie the symmetry observation to the maximization principle and articulate why 45° is optimal.",
+      "question": "Why does 45° maximize range?",
+      "interaction": { "kind": "verbal_response" },
+      "staging": {
+        "set_params": { "launch_angle": 45 },
+        "launch": true,
+        "annotate": [
+          { "region": "landing", "text": "peak range" },
+          { "region": "launch",  "text": "vx = vy"   }
+        ]
+      },
+      "followup_if_correct": "Exactly. Now — what would change if gravity were lower?",
+      "followup_if_surprised": "What are the velocity components at 45° compared to 30° and 60°?",
+      "exit_condition": "Student articulates that 45° balances horizontal and vertical components, optimizing the product of horizontal speed and flight time."
+    }
+  ],
+  "verification": {
+    "summary": "Complementary angles 30° and 60° produce equal range; 45° maximizes range at fixed v; range decreases as gravity increases.",
+    "probes": [
+      {
+        "id": "angle_30",
+        "description": "Launch at 30° under normal gravity",
+        "params": { "launch_angle": 30, "initial_velocity": 20, "gravity": 9.8 },
+        "expected_metrics": ["range_m", "angle"]
+      },
+      {
+        "id": "angle_45",
+        "description": "Launch at 45° under normal gravity",
+        "params": { "launch_angle": 45, "initial_velocity": 20, "gravity": 9.8 },
+        "expected_metrics": ["range_m", "angle"]
+      },
+      {
+        "id": "angle_60",
+        "description": "Launch at 60° under normal gravity",
+        "params": { "launch_angle": 60, "initial_velocity": 20, "gravity": 9.8 },
+        "expected_metrics": ["range_m", "angle"]
+      },
+      {
+        "id": "high_gravity",
+        "description": "Launch at 45° with higher gravity (15 m/s²)",
+        "params": { "launch_angle": 45, "initial_velocity": 20, "gravity": 15 },
+        "expected_metrics": ["range_m", "angle"]
+      }
+    ],
+    "invariants": [
+      {
+        "kind": "approximately_equal",
+        "id": "range_symmetry_30_60",
+        "description": "30° and 60° produce similar ranges (complementary-angle symmetry).",
+        "left_probe": "angle_30",
+        "right_probe": "angle_60",
+        "metric": "range_m",
+        "tolerance_percent": 8
+      },
+      {
+        "kind": "near_maximum",
+        "id": "angle_45_near_max",
+        "description": "45° should be near maximum range among tested angles.",
+        "target_probe": "angle_45",
+        "comparison_probes": ["angle_30", "angle_60"],
+        "metric": "range_m",
+        "tolerance_percent": 5
+      },
+      {
+        "kind": "monotonic",
+        "id": "gravity_monotonicity",
+        "description": "Range decreases as gravity increases (fixed angle and speed).",
+        "probe_order": ["angle_45", "high_gravity"],
+        "metric": "range_m",
+        "direction": "decreasing"
+      }
+    ]
+  }
+}

@@ -62,7 +62,12 @@
       "learning_goal": "Student discovers the complementary-angle symmetry empirically",
       "exit_condition": "Student notices the ranges are equal or nearly equal",
       "interaction": { "kind": "verbal_response" },
-      "staging": { "set_params": { "angle": 30 }, "highlight": ["angle", "speed"] }
+      "staging": {
+        "unlock": ["angle", "speed"],
+        "set_params": { "angle": 30 },
+        "highlight": ["angle", "speed"],
+        "launch": true
+      }
     },
     {
       "id": "explain_symmetry",

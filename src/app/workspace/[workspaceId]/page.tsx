@@ -54,15 +54,17 @@ function toolCallToAgentCmd(toolCall: { toolName: string; input: Record<string, 
     case 'advance_step':
       // Handled client-side only (not a sim command).
       return null
+    case 'launch':
+      return { type: 'AGENT_CMD', action: 'launch' }
     default:
       return null
   }
 }
 
-async function loadProjectileMotionPreset(): Promise<{ designDoc: DesignDoc; simCode: string }> {
+async function loadPreset(id: string): Promise<{ designDoc: DesignDoc; simCode: string }> {
   const [designDocRes, simRes] = await Promise.all([
-    fetch('/presets/projectile-motion/design-doc.json'),
-    fetch('/presets/projectile-motion/sim.js'),
+    fetch(`/presets/${id}/design-doc.json`),
+    fetch(`/presets/${id}/sim.js`),
   ])
   if (!designDocRes.ok) throw new Error(`Failed to load design doc: ${designDocRes.status}`)
   if (!simRes.ok) throw new Error(`Failed to load sim: ${simRes.status}`)
@@ -289,8 +291,25 @@ export default function WorkspacePage() {
 
     async function run() {
       try {
+        if (workspaceId === 'demo') {
+          const { designDoc, simCode } = await loadPreset('projectile-motion-demo')
+          if (cancelled) return
+          setDesignDoc(designDoc)
+          setActiveStepId(designDoc.socratic_plan[0]?.id || null)
+          setPendingEvents([])
+          setAgentCommands([])
+          setManifest(null)
+          setSimCode(simCode)
+          setRenderer(designDoc.renderer)
+          setTutorState('idle')
+          setSimEventHint(null)
+          setSimPhase('idle')
+          setPaused(false)
+          return
+        }
+
         if (workspaceId === 'dev') {
-          const { designDoc, simCode } = await loadProjectileMotionPreset()
+          const { designDoc, simCode } = await loadPreset('projectile-motion')
           if (cancelled) return
           setDesignDoc(designDoc)
           setActiveStepId(designDoc.socratic_plan[0]?.id || null)
@@ -494,7 +513,9 @@ export default function WorkspacePage() {
     }
   }, [handleSend, stopTutorAudio, tutorState])
 
-  const activeStep = designDoc?.socratic_plan.find(step => step.id === activeStepId) || null
+  // Match SocraticPlanPanel: fall back to first step so the sim never has null while the list has steps.
+  const socraticPlan = designDoc?.socratic_plan ?? []
+  const activeStep = socraticPlan.find(step => step.id === activeStepId) ?? socraticPlan[0] ?? null
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden text-[color:var(--ink)]">
@@ -525,6 +546,8 @@ export default function WorkspacePage() {
           simCode={simCode}
           renderer={renderer}
           activeStep={activeStep}
+          activeStepId={activeStepId}
+          episodicFromDesign={designDoc?.episodic !== false}
           agentCommands={agentCommands}
           onManifest={handleManifest}
           onMessage={handleIframeMessage}

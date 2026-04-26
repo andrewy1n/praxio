@@ -45,6 +45,7 @@ Requirements:
    prediction_sketch = sketch before seeing outcome; numeric_hypothesis = guess a number;
    click_to_query = focus a region; observe_event = wait for a sim event.
    staging lock/highlight/set_params must reference existing param IDs;
+   staging.launch: optional boolean; only when episodic is true (triggers one sim launch after param staging in the client);
    staging.highlight MUST only contain IDs from params[].name (never region IDs, labels, or UI element names).
    staging annotate[].region must reference register_regions.
    For numeric_hypothesis, use a stable short metric name (snake_case) the sim will emit. The verification step lists that exact string on every probe that needs it — avoid one-off names.

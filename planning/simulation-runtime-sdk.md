@@ -311,6 +311,7 @@ The parent frame exposes these calls. The AI tutor calls them as tool use.
 agentAPI.set_param(name, value)
 // Sends SET_PARAM command to iframe
 // Slider updates in UI, sim receives new value immediately
+// Applies even if the param is locked — lock is for the student; staging/tutor use the same command path
 
 agentAPI.lock(paramName)
 // Removes slider from student UI

@@ -9,6 +9,10 @@ type Props = {
   onManifest: (manifest: Manifest) => void
   onMessage: (msg: IframeMessage) => void
   activeStep?: SocraticStep | null
+  /** Socratic step id; include in effects so re-entering a step re-applies staging (same step object ref can otherwise skip effects). */
+  activeStepId?: string | null
+  /** `false` only when design doc explicitly sets `episodic: false` (omitted/undefined counts as not blocking). */
+  episodicFromDesign?: boolean
   onStepEvent?: (event: SimEvent) => void
   agentCommands?: AgentCmd[]
 }
@@ -19,6 +23,8 @@ export default function SimContainer({
   onManifest,
   onMessage,
   activeStep = null,
+  activeStepId = null,
+  episodicFromDesign = true,
   onStepEvent,
   agentCommands = [],
 }: Props) {
@@ -103,14 +109,46 @@ export default function SimContainer({
     activeStep.staging.lock?.forEach(target => sendCmd({ type: 'AGENT_CMD', action: 'lock', target }))
     activeStep.staging.unlock?.forEach(target => sendCmd({ type: 'AGENT_CMD', action: 'unlock', target }))
     activeStep.staging.highlight?.forEach(target => sendCmd({ type: 'AGENT_CMD', action: 'highlight', target }))
+    if (activeStep.staging.clear_annotations) {
+      sendCmd({ type: 'AGENT_CMD', action: 'clear_annotations' })
+    }
     activeStep.staging.annotate?.forEach(({ region, text }) => {
       sendCmd({ type: 'AGENT_CMD', action: 'annotate', region, text })
+    })
+    // Agent must apply staged values even if a prior step left params locked in the iframe.
+    Object.keys(activeStep.staging.set_params || {}).forEach(target => {
+      sendCmd({ type: 'AGENT_CMD', action: 'unlock', target })
     })
     Object.entries(activeStep.staging.set_params || {}).forEach(([target, value]) => {
       setParamValues(prev => ({ ...prev, [target]: value }))
       sendCmd({ type: 'AGENT_CMD', action: 'set_param', target, value })
     })
-  }, [activeStep, sendCmd])
+    const st = activeStep.staging
+    const hasSetParams = Boolean(st.set_params && Object.keys(st.set_params).length > 0)
+    let shouldLaunch = false
+    if (st.launch === false) {
+      shouldLaunch = false
+    } else if (st.launch === true) {
+      shouldLaunch = true
+    } else {
+      // Omitted in older design docs: manifest says episodic + set_params => one flight; design `episodic: false` opts out
+      shouldLaunch = Boolean(
+        hasSetParams
+        && manifest?.episodic
+        && episodicFromDesign,
+      )
+    }
+    let launchAfterParamTimer: ReturnType<typeof setTimeout> | null = null
+    if (shouldLaunch) {
+      // Defer so iframe message queue finishes set_param (and any reload) before launch
+      launchAfterParamTimer = setTimeout(() => {
+        sendCmd({ type: 'AGENT_CMD', action: 'launch' })
+      }, 16)
+    }
+    return () => {
+      if (launchAfterParamTimer) clearTimeout(launchAfterParamTimer)
+    }
+  }, [activeStep, activeStepId, sendCmd, manifest?.episodic, episodicFromDesign])
 
   const hasAnnotations = Object.keys(annotations).length > 0
   useEffect(() => {

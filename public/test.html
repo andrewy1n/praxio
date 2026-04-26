@@ -89,6 +89,7 @@
   <h3>Presets</h3>
   <select id="preset-select">
     <option value="projectile-motion">Projectile Motion (p5)</option>
+    <option value="projectile-motion-demo">Projectile Motion Demo (p5)</option>
     <option value="population-growth">Logistic Population Growth (canvas2d)</option>
     <option value="diffusion">Diffusion — Fick's Law (canvas2d)</option>
     <option value="elastic-inelastic-collisions">Elastic / Inelastic Collisions (matter)</option>
@@ -302,6 +303,17 @@
       const cmd = toolCallToAgentCmd(tc)
       if (cmd) iframe.contentWindow?.postMessage(cmd, '*')
     })
+    if (step.staging.clear_annotations) {
+      const tc = { toolName: 'clear_annotations', input: {} }
+      applyVisualToolCall(tc)
+      iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'clear_annotations' }, '*')
+    }
+    if (step.staging.launch === true) {
+      iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'reset' }, '*')
+      iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'launch' }, '*')
+    } else if (step.staging.launch === false) {
+      iframe.contentWindow?.postMessage({ type: 'AGENT_CMD', action: 'reset' }, '*')
+    }
   }
 
   function activateSocraticStep(stepId, options = {}) {
