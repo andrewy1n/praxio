@@ -34,13 +34,14 @@ export async function POST(req: Request) {
     activeSocraticStepId,
     sessionId,
     workspaceId,
+    stepQuestionReadAloud,
   }: SpeakRequest = await req.json()
 
   const messagesWithEvents = appendSimEvents(messages, pendingEvents)
 
   const result = streamText({
     model: tutorModel,
-    system: buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls, activeSocraticStepId),
+    system: buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls, activeSocraticStepId, stepQuestionReadAloud),
     messages: messagesWithEvents,
   })
 

@@ -561,6 +561,12 @@ export type StageRequest = {
   /** When omitted or `dev`, tutor routes skip MongoDB (e.g. test harness). */
   workspaceId?: string
   activeSocraticStepId?: string
+  /**
+   * When true, the current step’s question was already read via TTS at step
+   * entry. `/api/tutor/speak` uses this so the tutor does not repeat the full
+   * question. Ignored by `/api/tutor/stage`.
+   */
+  stepQuestionReadAloud?: boolean
 }
 
 export type StageResponse = {

@@ -499,6 +499,7 @@ export function buildCall2SystemPrompt(
   designDoc: DesignDoc,
   appliedToolCalls: AppliedToolCall[],
   activeSocraticStepId?: string,
+  stepQuestionReadAloud?: boolean,
 ): string {
   const stagingSummary = appliedToolCalls.length === 0
     ? 'You chose not to stage anything this turn. Respond with a Socratic move only.'
@@ -508,11 +509,28 @@ export function buildCall2SystemPrompt(
     ? `CURRENT STEP: ${activeSocraticStepId}`
     : 'CURRENT STEP: Infer the next unfinished step from the conversation and recent events.'
 
+  const readAloudBlock = stepQuestionReadAloud
+    ? `
+STEP QUESTION (VOICE) — read-aloud was already used:
+  The current step’s question or task was already read aloud to the student when
+  they entered this step (separate TTS, not in the message history). Their first
+  message is a reply in that context.
+  - Do NOT repeat, re-read, or restate the full step question or long task wording.
+  - Do NOT open with a duplicate of the same instruction they already heard.
+  - Respond to their latest message. If it is a brief acknowledgment, filler, or
+    meta question (e.g. "okay", "what now", "what happens?"), give ONE short
+    concrete nudge toward what the step’s interaction needs (e.g. sketch, drag a
+    slider, click a region) without paraphrasing the entire prompt.
+`.trim()
+    : ''
+
   return `
 You are the speaking half of a Socratic tutor. You have no tools this turn; only
 text. Another call already applied the sim staging below.
 
 ${stagingSummary}
+
+${readAloudBlock}
 
 HARD RULES:
   - NEVER explain the concept directly. You are forbidden from declarative answers.

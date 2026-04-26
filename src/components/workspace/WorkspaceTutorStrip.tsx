@@ -118,7 +118,7 @@ export default function WorkspaceTutorStrip({
   const canMic = Boolean(onMic) && !hasDraft && (tutorState === 'idle' || isListening)
 
   return (
-    <footer className="z-[100] flex h-[var(--tutor-strip-h)] shrink-0 items-stretch border-t border-[color:var(--border)] bg-[color:var(--bg)] font-[family-name:var(--font-dm-sans)]">
+    <footer data-tutor-strip="true" className="z-[100] flex h-[var(--tutor-strip-h)] shrink-0 items-stretch border-t border-[color:var(--border)] bg-[color:var(--bg)] font-[family-name:var(--font-dm-sans)]">
       <div className="flex w-[var(--tutor-status-w)] shrink-0 flex-col justify-center gap-1.5 border-r border-[color:var(--border)] px-4">
         <div
           className="flex items-center gap-1.5 font-[family-name:var(--font-dm-mono)] text-[11px] font-medium"

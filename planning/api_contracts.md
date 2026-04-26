@@ -496,6 +496,8 @@ type StageRequest = {
   designDoc: DesignDoc         // for Socratic plan + initial staging
   sessionId: string
   activeSocraticStepId?: string // optional UI-selected step; model infers if absent
+  /** When true, the step question was already read via TTS at step entry; Call 2 should not parrot it. Set by client; stage route ignores. */
+  stepQuestionReadAloud?: boolean
 }
 
 type TutorMessage = { role: 'user' | 'assistant'; content: string }
@@ -604,13 +606,14 @@ export async function POST(req: Request) {
     designDoc,
     appliedToolCalls,
     activeSocraticStepId,
+    stepQuestionReadAloud,
   } = await req.json()
 
   const messagesWithEvents = appendSimEvents(messages, pendingEvents)
 
   const result = streamText({
     model: google('gemini-2.5-flash'),
-    system: buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls, activeSocraticStepId),
+    system: buildCall2SystemPrompt(manifest, designDoc, appliedToolCalls, activeSocraticStepId, stepQuestionReadAloud),
     messages: messagesWithEvents,
     // no tools — removes text/tool competition that drops text-gen reliability
   })

@@ -125,6 +125,9 @@ export default function WorkspacePage() {
   const [sessionId] = useState(() => typeof window === 'undefined' ? 'demo' : getSessionId())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const tutorTurnInFlightRef = useRef(false)
+  // Mirror tutorState into a ref so non-React listeners (gesture unlock) can
+  // check the current state without triggering re-registrations on every change.
+  const tutorStateRef = useRef<TutorStripState>('idle')
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -135,6 +138,27 @@ export default function WorkspacePage() {
   useEffect(() => {
     activeStepIdRef.current = activeStepId
   }, [activeStepId])
+  useEffect(() => {
+    tutorStateRef.current = tutorState
+  }, [tutorState])
+  // Auto-read the step question on entry (initial load, dropdown switch). When
+  // the tutor itself triggers the advance, its Call 2 speech already covers
+  // the transition — we flip skipNextAutoReadRef so we don't speak twice.
+  const skipNextAutoReadRef = useRef(false)
+  const autoReadStepIdRef = useRef<string | null>(null)
+  // Browser autoplay policy: audio cannot play before the first user gesture.
+  // If auto-read fires on page load, stash the question here and replay on
+  // the first click/keydown.
+  const pendingAutoReadRef = useRef<{ stepId: string; text: string } | null>(null)
+  /** Step id whose question was heard via entry TTS — next user turn should not parrot it in Call 2. */
+  const stepQuestionReadAloudRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    autoReadStepIdRef.current = null
+    stepQuestionReadAloudRef.current = null
+    pendingAutoReadRef.current = null
+    skipNextAutoReadRef.current = false
+  }, [workspaceId])
 
   // Mark a specific step complete and move to the next one, guarded against the
   // student having manually switched steps via the dropdown mid-turn. This is
@@ -143,10 +167,15 @@ export default function WorkspacePage() {
   const completeAndAdvanceFrom = useCallback((stepId: string) => {
     const plan = designDoc?.socratic_plan ?? []
     if (!plan.length) return
+    const idx = plan.findIndex(s => s.id === stepId)
+    const nextId = idx >= 0 ? plan[idx + 1]?.id ?? null : null
+    console.log('[tutor] advance_step:', stepId, '->', nextId ?? '(end of plan)')
+    // Tutor's Call 2 response speaks the transition; skip the next auto-read
+    // so we don't overlap its speech with the raw step question.
+    skipNextAutoReadRef.current = true
     setCompletedStepIds(prev => (prev.includes(stepId) ? prev : [...prev, stepId]))
     setActiveStepId(current => {
       if (current !== stepId) return current
-      const idx = plan.findIndex(s => s.id === current)
       if (idx < 0) return current
       return plan[idx + 1]?.id ?? current
     })
@@ -160,9 +189,9 @@ export default function WorkspacePage() {
     audioRef.current = null
   }, [])
 
-  const speakTutorText = useCallback(async (text: string) => {
+  const speakTutorText = useCallback(async (text: string): Promise<{ ok: boolean; blocked: boolean }> => {
     const prompt = text.trim()
-    if (!prompt) return
+    if (!prompt) return { ok: false, blocked: false }
 
     stopTutorAudio()
 
@@ -175,7 +204,7 @@ export default function WorkspacePage() {
     if (!ttsRes.ok) {
       const debug = await ttsRes.text().catch(() => '')
       console.warn('[tts] failed', { status: ttsRes.status, debug })
-      return
+      return { ok: false, blocked: false }
     }
 
     const audioBlob = await ttsRes.blob()
@@ -193,9 +222,12 @@ export default function WorkspacePage() {
 
     try {
       await audio.play()
+      return { ok: true, blocked: false }
     } catch (err) {
+      const blocked = err instanceof DOMException && err.name === 'NotAllowedError'
       console.warn('[tts] playback blocked or failed', err)
       cleanup()
+      return { ok: false, blocked }
     }
   }, [stopTutorAudio])
 
@@ -227,6 +259,12 @@ export default function WorkspacePage() {
       stopTutorAudio()
       setTutorState('processing')
 
+      const stepQuestionReadAloud = Boolean(
+        args.submittedStepId
+        && stepQuestionReadAloudRef.current
+        && stepQuestionReadAloudRef.current === args.submittedStepId,
+      )
+
       const stageBody = {
         messages: args.nextMessages,
         pendingEvents: args.events,
@@ -235,6 +273,7 @@ export default function WorkspacePage() {
         sessionId,
         workspaceId: workspaceId === 'dev' ? 'dev' : workspaceId,
         activeSocraticStepId: activeStepId || undefined,
+        stepQuestionReadAloud,
       }
 
       const stageRes = await fetch('/api/tutor/stage', {
@@ -249,6 +288,9 @@ export default function WorkspacePage() {
       }
 
       const stageData = await stageRes.json() as { toolCalls: Array<{ toolName: string; input: Record<string, unknown> }> }
+      console.log('[tutor] stage tools:', stageData.toolCalls.map(tc => tc.toolName), {
+        activeStep: args.submittedStepId,
+      })
 
       // The tutor signals step completion by calling the advance_step tool.
       // Split it out: it's not a sim command and we do not want it in Call 2's
@@ -313,6 +355,10 @@ export default function WorkspacePage() {
       }
 
       setMessages([...nextAssistantBase, { role: 'assistant', content: tutorText }])
+
+      if (stepQuestionReadAloud) {
+        stepQuestionReadAloudRef.current = null
+      }
 
       setTutorState('tutor speaking')
       await speakTutorText(tutorText)
@@ -662,6 +708,70 @@ export default function WorkspacePage() {
   // Match SocraticPlanPanel: fall back to first step so the sim never has null while the list has steps.
   const socraticPlan = designDoc?.socratic_plan ?? []
   const activeStep = socraticPlan.find(step => step.id === activeStepId) ?? socraticPlan[0] ?? null
+
+  // Auto-speak the step's question when entering a new step (initial load,
+  // dropdown switch). Skipped when the tutor itself triggered the advance —
+  // its Call 2 speech already covers the transition. Guarded so the same step
+  // is never read twice (re-renders, strict-mode double-invoke).
+  const autoReadStepId = activeStep?.id ?? null
+  const autoReadQuestion = activeStep?.question ?? null
+  useEffect(() => {
+    if (!autoReadStepId || !autoReadQuestion) return
+    if (autoReadStepIdRef.current === autoReadStepId) return
+    if (skipNextAutoReadRef.current) {
+      skipNextAutoReadRef.current = false
+      autoReadStepIdRef.current = autoReadStepId
+      return
+    }
+    if (tutorTurnInFlightRef.current) return
+
+    autoReadStepIdRef.current = autoReadStepId
+    let cancelled = false
+    console.log('[tutor] auto-reading step question:', autoReadStepId)
+    void (async () => {
+      setTutorState(prev => (prev === 'idle' ? 'tutor speaking' : prev))
+      const result = await speakTutorText(autoReadQuestion)
+      if (cancelled) return
+      if (result.blocked) {
+        pendingAutoReadRef.current = { stepId: autoReadStepId, text: autoReadQuestion }
+        console.log('[tutor] auto-read queued until first user gesture')
+      } else if (result.ok) {
+        stepQuestionReadAloudRef.current = autoReadStepId
+      }
+      setTutorState(prev => (prev === 'tutor speaking' ? 'idle' : prev))
+    })()
+    return () => { cancelled = true }
+  }, [autoReadStepId, autoReadQuestion, speakTutorText])
+
+  // First user gesture unlocks queued auto-read audio (browser autoplay policy).
+  // If the gesture lands on the tutor strip (mic/send/input), the user is about
+  // to engage the tutor themselves — clear the queue without playing so we
+  // never stomp on their action.
+  useEffect(() => {
+    const flush = (target: EventTarget | null) => {
+      const queued = pendingAutoReadRef.current
+      if (!queued) return
+      if (tutorTurnInFlightRef.current) return
+      if (tutorStateRef.current !== 'idle') return
+      if (target instanceof Element && target.closest('[data-tutor-strip="true"]')) return
+      pendingAutoReadRef.current = null
+      void (async () => {
+        setTutorState(prev => (prev === 'idle' ? 'tutor speaking' : prev))
+        const r = await speakTutorText(queued.text)
+        if (r.ok) {
+          stepQuestionReadAloudRef.current = queued.stepId
+        }
+        setTutorState(prev => (prev === 'tutor speaking' ? 'idle' : prev))
+      })()
+    }
+    const onGesture = (e: Event) => flush(e.target)
+    window.addEventListener('pointerdown', onGesture)
+    window.addEventListener('keydown', onGesture)
+    return () => {
+      window.removeEventListener('pointerdown', onGesture)
+      window.removeEventListener('keydown', onGesture)
+    }
+  }, [speakTutorText])
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden text-[color:var(--ink)]">
