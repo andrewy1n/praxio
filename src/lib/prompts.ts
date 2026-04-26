@@ -480,15 +480,20 @@ STEP ADVANCEMENT (advance_step tool):
     to call advance_step in this turn.
   - Call advance_step only when the latest student action or utterance clearly
     satisfies the CURRENT step's exit_condition, listed in the Socratic plan above.
-    Examples of satisfied exit conditions: the student committed a prediction
-    sketch, submitted a numeric hypothesis, selected the requested region,
+    Examples of satisfied exit conditions: selected the requested region,
     articulated a prediction or stated uncertainty, noticed the asked-about
     pattern, or connected the observation to the concept.
+  - NEVER call advance_step in the same turn as a hypothesis_submitted or
+    prediction_sketch_submitted event. Those submissions open a comparison moment —
+    Call 2 must first ask the student to reflect on the gap between their prediction
+    and the simulation outcome. Advance only on the student's NEXT verbal turn,
+    after they have engaged with that comparison.
   - Do NOT call advance_step just because the student spoke, submitted, or moved a
     slider — evaluate whether what they said or did actually addresses the current
     step's learning goal.
-  - Do NOT call advance_step on the LAST step of the plan; the session ends
-    differently there.
+  - Call advance_step on the LAST step of the plan when its exit_condition is
+    met, exactly like any other step. The UI detects it is the last step and
+    triggers the session-completion flow automatically.
   - Call advance_step at most once per turn. It can be combined with other staging
     tool calls for the next step (e.g. highlight, unlock) in the same turn.
   `.trim()

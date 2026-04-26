@@ -319,7 +319,14 @@ export default function WorkspacePage() {
       // Split it out: it's not a sim command and we do not want it in Call 2's
       // staging summary (it just nudges the tutor to "ask the next question"
       // mid-sentence).
-      const tutorRequestedAdvance = stageData.toolCalls.some(tc => tc.toolName === 'advance_step')
+      //
+      // Guard: never advance in the same turn as a hypothesis/sketch submission.
+      // Call 2 must first respond to the prediction vs. observation gap; the step
+      // can only advance on the student's *next* verbal turn.
+      const hasSubmissionEvent = args.events.some(e =>
+        e.event === 'hypothesis_submitted' || e.event === 'prediction_sketch_submitted',
+      )
+      const tutorRequestedAdvance = !hasSubmissionEvent && stageData.toolCalls.some(tc => tc.toolName === 'advance_step')
       const stagingToolCalls = stageData.toolCalls.filter(tc => tc.toolName !== 'advance_step')
 
       const appliedToolCalls: AppliedToolCall[] = stagingToolCalls.map(toolCall => ({
