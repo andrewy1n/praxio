@@ -8,6 +8,7 @@ export type TutorStripState = 'idle' | 'processing' | 'tutor speaking' | 'listen
 type Props = {
   messages: TutorMessage[]
   onSend: (text: string) => void
+  onMic?: () => void
   tutorState: TutorStripState
   simEventHint?: string | null
   showSimHint?: boolean
@@ -62,6 +63,7 @@ function statusVisual(state: TutorStripState, colorVar: string) {
 export default function WorkspaceTutorStrip({
   messages,
   onSend,
+  onMic,
   tutorState,
   simEventHint,
   showSimHint = true,
@@ -69,6 +71,19 @@ export default function WorkspaceTutorStrip({
   const [inputVal, setInputVal] = useState('')
 
   const lastTutorMsg = [...messages].reverse().find(m => m.role === 'assistant')
+  const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
+  const lastUserIdx = lastUserMsg ? messages.lastIndexOf(lastUserMsg) : -1
+  const lastTutorIdx = lastTutorMsg ? messages.lastIndexOf(lastTutorMsg) : -1
+  const userSentAwaitingTutor = lastUserIdx > lastTutorIdx
+
+  const sentStatusText =
+    tutorState === 'processing'
+      ? 'sending to tutor…'
+      : tutorState === 'tutor speaking'
+        ? 'tutor is responding…'
+        : userSentAwaitingTutor
+          ? 'sent to tutor'
+          : null
 
   const statusColors: Record<TutorStripState, string> = {
     'tutor speaking': 'var(--accent)',
@@ -111,16 +126,38 @@ export default function WorkspaceTutorStrip({
         <Waveform state={tutorState} />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden px-5 py-3">
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 overflow-hidden px-5 py-3">
+        {lastUserMsg ? (
+          <div className="max-h-[40px] overflow-y-auto pr-2">
+            <p className="text-sm leading-snug tracking-tight text-[color:var(--ink)]">
+              <span className="font-[family-name:var(--font-dm-mono)] text-[11px] uppercase tracking-wider text-[color:var(--ink3)]">User:&nbsp;</span>
+              {lastUserMsg.content}
+            </p>
+          </div>
+        ) : null}
+
+        {sentStatusText ? (
+          <p className="flex items-center gap-1.5 font-[family-name:var(--font-dm-mono)] text-[11px] text-[color:var(--ink3)]">
+            {tutorState === 'processing' ? (
+              <span className="inline-block h-2 w-2 animate-spin rounded-full border-[1.5px] border-solid border-[oklch(68%_0.14_82)] border-t-transparent" />
+            ) : (
+              <span className="inline-block h-1 w-1 rounded-full bg-[color:var(--ink3)]" />
+            )}
+            {sentStatusText}
+          </p>
+        ) : null}
+
         {lastTutorMsg ? (
           <div className="max-h-[44px] overflow-y-auto pr-2">
             <p className="text-sm leading-snug tracking-tight text-[color:var(--ink)] [&_strong]:font-semibold">
+              <span className="font-[family-name:var(--font-dm-mono)] text-[11px] uppercase tracking-wider text-[color:var(--ink3)]">Tutor:&nbsp;</span>
               {lastTutorMsg.content}
             </p>
           </div>
-        ) : (
+        ) : !lastUserMsg ? (
           <p className="text-sm italic text-[color:var(--ink3)]">Waiting for tutor…</p>
-        )}
+        ) : null}
+
         {showSimHint && simEventHint ? (
           <p className="truncate font-[family-name:var(--font-dm-mono)] text-[11px] text-[color:var(--ink3)]">{simEventHint}</p>
         ) : null}
@@ -139,7 +176,7 @@ export default function WorkspaceTutorStrip({
           title={hasDraft ? 'Send' : 'Speak (STT)'}
           aria-label={hasDraft ? 'Send message' : 'Speak (STT)'}
           className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded border-0 bg-[color:var(--ink)] text-white transition-colors hover:opacity-90"
-          onClick={hasDraft ? handleSend : () => {}}
+          onClick={hasDraft ? handleSend : onMic}
         >
           {hasDraft ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>

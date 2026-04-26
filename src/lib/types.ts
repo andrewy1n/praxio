@@ -628,6 +628,7 @@ export type GetWorkspaceResponse = {
     lastActiveAt: string
     completedAt?: string
     simCode: string
+    completedStepIds: string[]
   }
   branch?: {
     branchId: string
