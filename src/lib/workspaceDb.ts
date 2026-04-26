@@ -167,6 +167,25 @@ export async function patchWorkspaceMetadata(
   await coll.updateOne({ workspaceId, sessionId }, { $set })
 }
 
+export async function deleteWorkspaceForSession(
+  workspaceId: string,
+  sessionId: string,
+): Promise<void> {
+  await ensurePraxioIndexes()
+  const db = await getDb()
+  const workspaces = db.collection<WorkspaceDoc>(WORKSPACES)
+  const steps = db.collection<Branch & Document>(STEPS)
+
+  const wsRes = await workspaces.deleteOne({ workspaceId, sessionId })
+  if (wsRes.deletedCount === 0) {
+    const err = new Error('Workspace not found or access denied')
+    ;(err as Error & { status: number }).status = 404
+    throw err
+  }
+
+  await steps.deleteMany({ workspaceId, sessionId })
+}
+
 export async function persistBranchAfterTutorTurn(input: {
   workspaceId: string
   sessionId: string

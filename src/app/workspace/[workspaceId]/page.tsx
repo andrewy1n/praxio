@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import SimContainer from '@/components/SimContainer'
 import WorkspaceTopBar from '@/components/workspace/WorkspaceTopBar'
 import WorkspaceTutorStrip from '@/components/workspace/WorkspaceTutorStrip'
@@ -19,31 +19,7 @@ import type {
   DesignDoc,
   GenerateResponse,
 } from '@/lib/types'
-
-// Preferred MediaRecorder mime types, in order. Browsers fall through to the
-// first one they actually support (Safari needs mp4/aac, Chrome/Firefox prefer
-// webm/opus). ElevenLabs Scribe auto-detects codec from the file payload.
-const MIC_MIME_CANDIDATES = [
-  'audio/webm;codecs=opus',
-  'audio/webm',
-  'audio/mp4',
-  'audio/ogg;codecs=opus',
-  'audio/ogg',
-]
-
-function pickSupportedMimeType(): string | undefined {
-  if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
-    return undefined
-  }
-  for (const type of MIC_MIME_CANDIDATES) {
-    try {
-      if (window.MediaRecorder.isTypeSupported?.(type)) return type
-    } catch {
-      /* ignore */
-    }
-  }
-  return undefined
-}
+import { pickSupportedMimeType } from '@/lib/micRecording'
 
 function toolCallToAgentCmd(toolCall: { toolName: string; input: Record<string, unknown> }): AgentCmd | null {
   switch (toolCall.toolName) {
@@ -110,6 +86,9 @@ function getSessionId(): string {
 
 export default function WorkspacePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const replayLastStep = searchParams.get('replay') === '1'
   const [simCode, setSimCode] = useState<string | null>(null)
   const [renderer, setRenderer] = useState<'p5' | 'canvas2d' | 'jsxgraph' | 'matter' | null>(null)
   const [manifest, setManifest] = useState<Manifest | null>(null)
@@ -123,6 +102,9 @@ export default function WorkspacePage() {
   const [simPhase, setSimPhase] = useState<'idle' | 'active' | 'done'>('idle')
   const [paused, setPaused] = useState(false)
   const [simEventHint, setSimEventHint] = useState<string | null>(null)
+  const [workspaceStatus, setWorkspaceStatus] = useState<'in_progress' | 'completed'>('in_progress')
+  const [completionSummary, setCompletionSummary] = useState<string | null>(null)
+  const [transferQuestion, setTransferQuestion] = useState<string | null>(null)
   const [sessionId] = useState(() => typeof window === 'undefined' ? 'demo' : getSessionId())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const tutorTurnInFlightRef = useRef(false)
@@ -392,6 +374,9 @@ export default function WorkspacePage() {
           setSimEventHint(null)
           setSimPhase('idle')
           setPaused(false)
+          setWorkspaceStatus('in_progress')
+          setCompletionSummary(null)
+          setTransferQuestion(null)
           return
         }
 
@@ -409,6 +394,9 @@ export default function WorkspacePage() {
           setSimEventHint(null)
           setSimPhase('idle')
           setPaused(false)
+          setWorkspaceStatus('in_progress')
+          setCompletionSummary(null)
+          setTransferQuestion(null)
           return
         }
 
@@ -420,16 +408,25 @@ export default function WorkspacePage() {
             const payload = (await res.json()) as GetWorkspaceResponse
             if (cancelled) return
             const w = payload.workspace
+            const plan = w.designDoc.socratic_plan
+            const finalStepId = plan[plan.length - 1]?.id ?? null
+            const isCompleted = w.status === 'completed'
+            const defaultStepId
+              = payload.branch?.currentSocraticStepId
+                ?? (isCompleted ? finalStepId : plan[0]?.id)
+                ?? null
+            const activeForEntry = replayLastStep
+              ? finalStepId ?? defaultStepId
+              : defaultStepId
             setDesignDoc(w.designDoc)
-            setActiveStepId(
-              payload.branch?.currentSocraticStepId
-                ?? w.designDoc.socratic_plan[0]?.id
-                ?? null,
-            )
+            setActiveStepId(activeForEntry)
             setCompletedStepIds(w.completedStepIds ?? [])
             if (payload.branch?.conversationHistory?.length) {
               setMessages(payload.branch.conversationHistory)
             }
+            setWorkspaceStatus(w.status)
+            setCompletionSummary(payload.completion?.summary?.synthesis ?? null)
+            setTransferQuestion(payload.completion?.summary?.transferQuestion ?? null)
             setPendingEvents([])
             setAgentCommands([])
             setManifest(null)
@@ -450,6 +447,9 @@ export default function WorkspacePage() {
         if (!data || cancelled) return
         setDesignDoc(data.designDoc)
         setActiveStepId(data.designDoc.socratic_plan[0]?.id || null)
+        setWorkspaceStatus('in_progress')
+        setCompletionSummary(null)
+        setTransferQuestion(null)
         setPendingEvents([])
         setAgentCommands([])
         setManifest(null)
@@ -466,7 +466,7 @@ export default function WorkspacePage() {
 
     void run()
     return () => { cancelled = true }
-  }, [workspaceId, sessionId])
+  }, [replayLastStep, sessionId, workspaceId])
 
   useEffect(() => {
     return () => {
@@ -799,6 +799,34 @@ export default function WorkspacePage() {
       />
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
+        {workspaceStatus === 'completed' && !replayLastStep ? (
+          <div className="pointer-events-none absolute inset-x-4 top-4 z-30 mx-auto max-w-[var(--measure-lg)] rounded-[var(--r)] border border-[color:var(--border)] bg-white/95 p-3 shadow-[var(--shadow-md)] backdrop-blur">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--ink3)]">Completed session</p>
+            {completionSummary ? (
+              <p className="mt-1 text-[13px] text-[color:var(--ink)] line-clamp-2">{completionSummary}</p>
+            ) : null}
+            {transferQuestion ? (
+              <p className="mt-1 text-[12px] text-[color:var(--ink2)] line-clamp-2">{transferQuestion}</p>
+            ) : null}
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => router.push(`/workspace/${encodeURIComponent(workspaceId)}?replay=1`)}
+                className="pointer-events-auto rounded-[var(--r)] border border-[color:var(--border)] bg-white px-3 py-1.5 text-[11px] font-medium text-[color:var(--ink2)]"
+              >
+                Replay last step
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push('/')}
+                className="pointer-events-auto rounded-[var(--r)] border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1.5 text-[11px] font-medium text-[color:var(--ink2)]"
+              >
+                New concept
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <SimContainer
           simCode={simCode}
           renderer={renderer}

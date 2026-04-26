@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import PraxioLogo from '@/components/PraxioLogo'
 import StepsDropdown from './StepsDropdown'
 
 function formatStepLabel(id: string): string {
@@ -38,21 +39,10 @@ export default function WorkspaceTopBar({
     <header className="relative z-[100] flex h-[54px] shrink-0 items-center gap-3 border-b border-[color:var(--border)] bg-[rgba(255,255,255,0.92)] px-5 font-[family-name:var(--font-dm-sans)] backdrop-blur-md">
       <Link
         href="/"
-        className="flex shrink-0 items-center gap-1.5 rounded-md outline-none ring-offset-2 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[color:var(--accent-border)]"
+        className="flex shrink-0 items-center gap-2 rounded-md outline-none ring-offset-2 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[color:var(--accent-border)]"
         title="New concept"
       >
-        <svg
-          width="22"
-          height="22"
-          viewBox="0 0 22 22"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          style={{ borderRadius: '5px' }}
-        >
-          <rect width="22" height="22" fill="var(--accent)" />
-          <circle cx="11" cy="11" r="4.5" fill="white" fillOpacity="0.9" />
-          <rect x="7.5" y="7.5" width="7" height="7" rx="1.5" fill="white" fillOpacity="0.8" transform="rotate(45 11 11)" />
-        </svg>
+        <PraxioLogo />
         <span className="text-[14px] font-semibold tracking-[-0.01em] text-[color:var(--ink)]">Praxio</span>
       </Link>
 
