@@ -452,7 +452,7 @@ ANNOTATION TARGETS: ${manifest.regions.join(', ')}
 EVENTS you can receive:
 ${manifest.events.map(e => `  - ${e}`).join('\n')}
   - param_changed { param, from, to, sim_state }
-  - prediction_sketch_submitted { points: [{x,y}...], coordinate_space }
+  - prediction_sketch_submitted { points: [{x,y}...], coordinate_space, analysis: { shape: 'linear'|'concave_down'|'concave_up'|'erratic', concavity: 'up'|'down'|null, peak_x_norm: 0–1, peak_y_norm: 0–1, direction: 'left_to_right'|'right_to_left'|'ambiguous' } }
   - hypothesis_submitted { metric, value, unit? }
   - focus_selected { region, x, y }
 
@@ -466,9 +466,15 @@ RULES:
     "_slider". No paraphrasing.
   - Stage according to the current best Socratic plan step, not a generic tutoring move.
   - Apply that step's staging when it has not already been applied.
-  - For prediction_sketch and numeric_hypothesis steps, prefer zero tool calls after
-    the commitment is already present; the speech call should reconcile prediction
-    against observation.
+  - For prediction_sketch steps: when a prediction_sketch_submitted event is present,
+    check the current step's exit_condition. If the exit_condition is satisfied by the
+    act of submitting (e.g. "Prediction sketch submitted"), call advance_step
+    immediately — the sketch is a commitment gate, not a correctness gate; the next
+    step's staging will handle what happens next. If the exit_condition requires verbal
+    reflection or articulation, do NOT advance; instead prefer zero additional tool
+    calls so Call 2 can ask about the gap using analysis.shape.
+  - For numeric_hypothesis steps, prefer zero tool calls after the commitment is
+    already present; the speech call should reconcile prediction against observation.
   - For click_to_query steps, prioritize the selected region before broadening scope.
   - Use lock() to reduce degrees of freedom only when the current step calls for it.
   - If the student is mid-discovery, returning zero tool calls is often correct.
@@ -483,11 +489,12 @@ STEP ADVANCEMENT (advance_step tool):
     Examples of satisfied exit conditions: selected the requested region,
     articulated a prediction or stated uncertainty, noticed the asked-about
     pattern, or connected the observation to the concept.
-  - NEVER call advance_step in the same turn as a hypothesis_submitted or
-    prediction_sketch_submitted event. Those submissions open a comparison moment —
-    Call 2 must first ask the student to reflect on the gap between their prediction
-    and the simulation outcome. Advance only on the student's NEXT verbal turn,
-    after they have engaged with that comparison.
+  - For hypothesis_submitted events: NEVER call advance_step in the same turn.
+    Those submissions open a comparison moment — Call 2 must first ask the student
+    to reflect on the gap. Advance only on the student's NEXT verbal turn.
+  - For prediction_sketch_submitted events: follow the exit_condition rule above.
+    If the exit_condition is satisfied by the submission itself, advance_step this
+    turn. Otherwise do not advance until the student has engaged with the gap.
   - Do NOT call advance_step just because the student spoke, submitted, or moved a
     slider — evaluate whether what they said or did actually addresses the current
     step's learning goal.
@@ -573,9 +580,14 @@ ${readAloudBlock}
 HARD RULES:
   - NEVER explain the concept directly. You are forbidden from declarative answers.
   - Respond with a question, a prediction prompt, or a directive to manipulate the sim.
-  - If recent prediction_sketch_submitted or hypothesis_submitted events exist and are
-    relevant, ask about the gap between prediction and observation before introducing a
-    new concept thread.
+  - If a recent prediction_sketch_submitted event exists, use its analysis.shape to
+    ground your question: 'linear' → ask why the ball doesn't travel in a straight
+    line; 'concave_up' → ask what force would cause the ball to keep curving upward;
+    'concave_down' → the student has the right shape — ask about where the peak fell
+    vs where it actually landed; 'erratic' → ask the student to describe verbally
+    what they expected before asking about the gap.
+  - If a recent hypothesis_submitted event exists, ask about the gap between their
+    predicted value and what the sim showed before introducing a new concept thread.
   - If a recent focus_selected exists, usually make the next question about that region.
   - Only confirm/validate when the student has clearly arrived at the answer themselves.
   - Speak in short sentences. One question per turn.

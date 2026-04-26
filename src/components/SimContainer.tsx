@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IframeMessage, AgentCmd, Manifest, SimEvent, SocraticStep } from '@/lib/types'
+import { analyzeSketch } from '@/lib/sketchAnalysis'
 
 type Props = {
   simCode: string | null
@@ -35,6 +36,7 @@ export default function SimContainer({
   const [isDrawing, setIsDrawing] = useState(false)
   const [manifest, setManifest] = useState<Manifest | null>(null)
   const [paramValues, setParamValues] = useState<Record<string, number>>({})
+  const [paramInputDrafts, setParamInputDrafts] = useState<Record<string, string>>({})
   const [regionPositions, setRegionPositions] = useState<Record<string, { x: number; y: number }>>({})
   const [annotations, setAnnotations] = useState<Record<string, string>>({})
   const [predictionPoints, setPredictionPoints] = useState<Array<{ x: number; y: number }>>([])
@@ -65,6 +67,7 @@ export default function SimContainer({
         const m: Manifest = { params: msg.params, regions: msg.regions, events: msg.events, animates: !!msg.animates, episodic: !!msg.episodic }
         setManifest(m)
         setParamValues(Object.fromEntries(msg.params.map(p => [p.name, p.default])))
+        setParamInputDrafts({})
         onManifest(m)
       }
       if (msg.type === 'PARAM_CHANGED') {
@@ -166,6 +169,33 @@ export default function SimContainer({
     sendCmd({ type: 'AGENT_CMD', action: 'set_param', target: name, value })
   }
 
+  const clampParamValue = (value: number, min: number, max: number) => {
+    if (value < min) return min
+    if (value > max) return max
+    return value
+  }
+
+  const handleParamNumberInput = (name: string, rawValue: string, min: number, max: number, fallback: number) => {
+    if (rawValue.trim() === '') return
+    const parsed = Number(rawValue)
+    if (!Number.isFinite(parsed)) return
+    handleSlider(name, clampParamValue(parsed, min, max))
+    setParamInputDrafts(prev => {
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+  }
+
+  const resetParamDraft = (name: string) => {
+    setParamInputDrafts(prev => {
+      if (!(name in prev)) return prev
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+  }
+
   const emitStepEvent = (event: Omit<SimEvent, 'timestamp'>) => {
     onStepEvent?.({ ...event, timestamp: Date.now() })
   }
@@ -187,11 +217,18 @@ export default function SimContainer({
 
   const submitPredictionSketch = () => {
     if (predictionPoints.length < 2) return
+    const rect = canvasRef.current?.getBoundingClientRect()
+    const analysis = analyzeSketch(
+      predictionPoints,
+      rect?.width ?? 800,
+      rect?.height ?? 500,
+    )
     emitStepEvent({
       event: 'prediction_sketch_submitted',
       payload: {
         points: predictionPoints.map(point => ({ x: Math.round(point.x), y: Math.round(point.y) })),
         coordinate_space: 'iframe_css_pixels',
+        analysis,
       },
     })
   }
@@ -364,13 +401,47 @@ export default function SimContainer({
                 style={{ accentColor: 'var(--accent)' }}
               />
 
-              <span
-                className="min-w-[40px] text-right font-[family-name:var(--font-dm-mono)] text-[11px] font-medium tabular-nums"
-                style={{ color: 'var(--ink3)' }}
-              >
-                {(paramValues[param.name] ?? param.default).toFixed(1)}
-                {param.unit ? `${param.unit}` : ''}
-              </span>
+              <div className="flex min-w-[86px] items-center justify-end gap-1">
+                <input
+                  type="number"
+                  min={param.min}
+                  max={param.max}
+                  step={(param.max - param.min) / 100}
+                  value={paramInputDrafts[param.name] ?? String(paramValues[param.name] ?? param.default)}
+                  onChange={e => {
+                    const raw = e.target.value
+                    setParamInputDrafts(prev => ({ ...prev, [param.name]: raw }))
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      handleParamNumberInput(
+                        param.name,
+                        paramInputDrafts[param.name] ?? String(paramValues[param.name] ?? param.default),
+                        param.min,
+                        param.max,
+                        param.default,
+                      )
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      resetParamDraft(param.name)
+                    }
+                  }}
+                  onBlur={() => resetParamDraft(param.name)}
+                  disabled={lockedParams.has(param.name)}
+                  className="w-[56px] rounded-[var(--r-sm)] border bg-[var(--surface)] px-1.5 py-1 text-right font-[family-name:var(--font-dm-mono)] text-[11px] font-medium tabular-nums outline-none focus:border-[color:var(--accent)]"
+                  style={{ borderColor: 'var(--border)', color: 'var(--ink3)' }}
+                  aria-label={`${param.label} value`}
+                />
+                {param.unit ? (
+                  <span
+                    className="font-[family-name:var(--font-dm-mono)] text-[11px] font-medium"
+                    style={{ color: 'var(--ink3)' }}
+                  >
+                    {param.unit}
+                  </span>
+                ) : null}
+              </div>
               </div>
           ))}
         </div>
