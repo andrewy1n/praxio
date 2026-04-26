@@ -7,6 +7,7 @@ import WorkspaceTopBar from '@/components/workspace/WorkspaceTopBar'
 import WorkspaceTutorStrip from '@/components/workspace/WorkspaceTutorStrip'
 import type { TutorStripState } from '@/components/workspace/WorkspaceTutorStrip'
 import SimControlsOverlay from '@/components/SimControlsOverlay'
+import SocraticStepQuestionBanner from '@/components/workspace/SocraticStepQuestionBanner'
 import type {
   AgentCmd,
   AppliedToolCall,
@@ -811,19 +812,11 @@ export default function WorkspacePage() {
         />
 
         {activeStep?.question ? (
-          <div className="pointer-events-none absolute left-4 right-4 top-4 z-20 flex">
-            {/* Spacer for ParamPanel (top-left) so the question sits to its right */}
-            <div className="w-[260px] shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="mx-auto max-w-[var(--measure-lg)] text-center">
-                <div
-                  className="inline-block rounded-[var(--r)] border bg-white/90 px-4 py-2 text-[14px] leading-[1.45] tracking-tight text-[color:var(--ink)] shadow-[var(--shadow-md)] backdrop-blur"
-                  style={{ borderColor: 'var(--border)' }}
-                >
-                  {activeStep.question}
-                </div>
-              </div>
-            </div>
+          <div className="pointer-events-none absolute inset-0 z-20 flex min-w-0 items-start justify-center p-3 sm:p-4">
+            <SocraticStepQuestionBanner
+              question={activeStep.question}
+              stepId={activeStep.id}
+            />
           </div>
         ) : null}
 

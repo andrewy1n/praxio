@@ -328,36 +328,6 @@ runtime.onRender(function (p) {
   p.rect(hudX - 4, hudY - 13, 112, 18, 3)
   p.fill(INK_3[0], INK_3[1], INK_3[2]); p.noStroke(); p.textAlign(p.LEFT); p.textSize(11)
   p.text(angle_deg.toFixed(1) + '°  ·  ' + speed.toFixed(0) + ' m/s', hudX, hudY)
-
-  // Annotations drawn at region positions
-  const annotations = runtime.getAnnotations()
-  const annKeys = Object.keys(annotations)
-  if (annKeys.length > 0) {
-    p.textAlign(p.LEFT); p.textSize(12)
-    annKeys.forEach(function (region) {
-      const text = annotations[region]
-      let rx, ry
-      if (region === 'launch') {
-        rx = LAUNCH_X_PX + 24; ry = groundY - 55
-      } else if (region === 'apex') {
-        const tr = makeTraj()
-        const pos = tr.positionAt(tr.peak.t)
-        rx = LAUNCH_X_PX + pos.x_m * SCALE - 20
-        ry = groundY - pos.y_m * SCALE - 22
-      } else if (region === 'landing') {
-        const tr = makeTraj()
-        rx = LAUNCH_X_PX + tr.range * SCALE - 40
-        ry = groundY - 38
-      }
-      if (rx !== undefined) {
-        const tw = text.length * 7 + 16
-        p.noStroke(); p.fill(INK[0], INK[1], INK[2], 220)
-        p.rect(rx - 8, ry - 14, tw, 22, 4)
-        p.fill(YELLOW[0], YELLOW[1], YELLOW[2])
-        p.text(text, rx, ry)
-      }
-    })
-  }
 })
 
 // Auto-launch the 30° anchor flight when the sim first loads

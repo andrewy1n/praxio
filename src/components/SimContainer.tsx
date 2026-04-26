@@ -239,6 +239,12 @@ export default function SimContainer({
 
   const overlayEnabled = interaction?.kind === 'prediction_sketch' || interaction?.kind === 'click_to_query'
 
+  const regionNameAccentClass: Record<string, string> = {
+    launch: 'text-amber-200',
+    apex: 'text-sky-300',
+    landing: 'text-sky-300',
+  }
+
   if (!renderer) {
     return (
       <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
@@ -265,20 +271,20 @@ export default function SimContainer({
             return (
               <div
                 key={region}
-                className="absolute max-w-[280px] rounded-lg border px-3 py-2 text-xs shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur"
+                className="absolute max-w-[280px] rounded-md bg-stone-900/75 px-2.5 py-1.5 text-xs font-normal leading-snug"
                 style={{
                   left: pos.x + 12,
                   top: pos.y,
                   transform: 'translateY(-50%)',
-                  background: 'rgba(10, 10, 10, 0.88)',
-                  borderColor: 'rgba(96, 165, 250, 0.9)',
-                  color: 'rgba(219, 234, 254, 1)',
                 }}
               >
-                <strong style={{ display: 'block', color: 'rgba(147, 197, 253, 1)', marginBottom: 4 }}>
-                  {region}
-                </strong>
-                <span style={{ whiteSpace: 'pre-wrap' }}>{text}</span>
+                <span className="break-words whitespace-normal text-white/95">
+                  <span className={regionNameAccentClass[region] ?? 'text-sky-300'}>
+                    {region}
+                  </span>
+                  {' · '}
+                  {text}
+                </span>
               </div>
             )
           })}
